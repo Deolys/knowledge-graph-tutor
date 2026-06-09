@@ -5,6 +5,7 @@
 """
 import json
 import re
+from functools import lru_cache
 from typing import Any
 
 from google import genai
@@ -18,7 +19,12 @@ from tenacity import (
 
 from app.config import settings
 
-_client = genai.Client(api_key=settings.gemini_api_key)
+
+@lru_cache(maxsize=1)
+def _get_client() -> genai.Client:
+    """Ленивая инициализация клиента — не падаем на импорте без ключа."""
+    return genai.Client(api_key=settings.gemini_api_key)
+
 
 # Снимает обёртку ```json ... ``` если модель её добавила
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
@@ -45,7 +51,7 @@ async def _generate(system: str, user: str, json_mode: bool) -> str:
         system_instruction=system,
         response_mime_type="application/json" if json_mode else "text/plain",
     )
-    response = await _client.aio.models.generate_content(
+    response = await _get_client().aio.models.generate_content(
         model=settings.model,
         contents=user,
         config=config,

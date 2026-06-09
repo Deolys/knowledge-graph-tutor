@@ -1,7 +1,8 @@
 """Модель вопроса для тестирования."""
 import uuid
 
-from sqlalchemy import ForeignKey, Integer, String, Text, text
+from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import text as sa_text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -16,7 +17,7 @@ class Question(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         primary_key=True,
-        server_default=text("gen_random_uuid()"),
+        server_default=sa_text("gen_random_uuid()"),
     )
     concept_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("concepts.id"), nullable=False
@@ -24,4 +25,6 @@ class Question(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     options: Mapped[list[str]] = mapped_column(JSONB, nullable=False)
     correct_idx: Mapped[int] = mapped_column(Integer, nullable=False)
-    difficulty: Mapped[str] = mapped_column(String, server_default=text("'medium'"))
+    difficulty: Mapped[str] = mapped_column(
+        String, server_default=sa_text("'medium'")
+    )

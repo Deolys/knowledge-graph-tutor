@@ -2,11 +2,7 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# Системные зависимости для pymupdf и сборки колёс
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
+# Зависимости ставятся из готовых manylinux-колёс, компилятор не нужен.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

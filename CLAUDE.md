@@ -67,7 +67,7 @@ LEARNED_SCORE_THRESHOLD=0.7
 **API layer** (`api/`): thin routers — `books.py` (upload/status/graph), `concepts.py`, `progress.py`, `qa.py`
 
 **Services:**
-- `services/llm.py` — AI API client with retry logic and JSON parsing
+- `services/llm.py` — Gemini API client (google-genai) with retry logic and JSON parsing
 - `services/embeddings.py` — sentence-transformers encode/search
 - `services/qa_service.py` — vector search → context expansion via graph neighborhood → LLM answer
 - `services/test_service.py` — MCQ question generation and answer checking

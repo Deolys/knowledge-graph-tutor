@@ -52,7 +52,7 @@
 [PDF Учебник]
       │
       ▼
-[Ingestion Pipeline]  ←── Python, pymupdf4llm, LangChain
+[Ingestion Pipeline]  ←── Python, pymupdf4llm, google-genai
       │
       ├── Извлечение текста + LaTeX формул по главам
       ├── Вызов LLM: извлечение понятий (Вызов 1)
@@ -75,7 +75,7 @@
 | Компонент | Технология | Ответственность |
 |---|---|---|
 | PDF Parser | pymupdf4llm | Извлечение текста + LaTeX из PDF |
-| Ingestion Pipeline | LangChain + AI API | Построение графа из текста |
+| Ingestion Pipeline | google-genai (Gemini) | Построение графа из текста |
 | Embeddings | sentence-transformers | Merge дублирующихся понятий |
 | Storage | PostgreSQL + pgvector | Хранение графа, прогресса, вопросов |
 | Backend API | FastAPI | REST API для фронтенда |

@@ -1,8 +1,11 @@
 """Роутер книг: upload, статус обработки, граф."""
+import logging
 import os
 import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,8 +27,13 @@ router = APIRouter(prefix="/api/books", tags=["books"])
 
 async def _run_ingestion_bg(book_id: uuid.UUID, pdf_path: str) -> None:
     """Фоновая задача: своя сессия, т.к. запросная уже закрыта."""
-    async with async_session_maker() as session:
-        await pipeline.run_ingestion(session, book_id, pdf_path)
+    logger.info("Ingestion started: book_id=%s pdf=%s", book_id, pdf_path)
+    try:
+        async with async_session_maker() as session:
+            await pipeline.run_ingestion(session, book_id, pdf_path)
+        logger.info("Ingestion done: book_id=%s", book_id)
+    except Exception:
+        logger.exception("Ingestion FAILED: book_id=%s", book_id)
 
 
 @router.post("/upload", response_model=BookOut)

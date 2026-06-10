@@ -27,11 +27,20 @@ services:
       MAX_CHAPTER_TOKENS: ${MAX_CHAPTER_TOKENS:-4000}
       QUESTIONS_PER_CONCEPT: ${QUESTIONS_PER_CONCEPT:-3}
       LEARNED_SCORE_THRESHOLD: ${LEARNED_SCORE_THRESHOLD:-0.7}
+      # Прокси для доступа к Gemini API (хостовый прокси через host.docker.internal).
+      # Значение из .env (GEMINI_PROXY), а не из HTTP_PROXY хоста — иначе
+      # подхватится 127.0.0.1 от VS Code, недоступный внутри контейнера.
+      # postgres резолвится по имени сервиса, поэтому исключаем его из прокси.
+      HTTP_PROXY: ${GEMINI_PROXY:-http://host.docker.internal:10801}
+      HTTPS_PROXY: ${GEMINI_PROXY:-http://host.docker.internal:10801}
+      NO_PROXY: postgres,localhost,127.0.0.1
     ports:
       - "8000:8000"
     depends_on:
       postgres:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./uploads:/app/uploads
 

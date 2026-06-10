@@ -4,13 +4,16 @@
 здесь — только транспорт, повторные попытки и разбор ответа.
 """
 import json
+import logging
 import re
 from functools import lru_cache
 from typing import Any
 
 from google import genai
+from google.genai import errors as genai_errors
 from google.genai import types
 from tenacity import (
+    before_sleep_log,
     retry,
     retry_if_exception_type,
     stop_after_attempt,
@@ -18,6 +21,8 @@ from tenacity import (
 )
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
@@ -40,10 +45,20 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+def _is_retryable(exc: BaseException) -> bool:
+    """503 (перегрузка) и 429 (rate limit) — ретраим. Остальное — нет."""
+    if isinstance(exc, genai_errors.ServerError):
+        return True
+    if isinstance(exc, genai_errors.ClientError) and "429" in str(exc):
+        return True
+    return False
+
+
 @retry(
-    retry=retry_if_exception_type(Exception),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=20),
+    retry=retry_if_exception_type(genai_errors.ServerError),
+    stop=stop_after_attempt(6),
+    wait=wait_exponential(multiplier=2, min=5, max=60),
+    before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
 async def _generate(system: str, user: str, json_mode: bool) -> str:

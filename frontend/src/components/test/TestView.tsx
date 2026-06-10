@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useTest } from "../../hooks/useTest";
 import { useProgressStore } from "../../store/progressStore";
 
@@ -15,13 +16,16 @@ export function TestView({ conceptId, sessionId, onDone }: Props) {
   );
   const setStatus = useProgressStore((s) => s.setStatus);
 
+  useEffect(() => {
+    if (!result) return;
+    setStatus(result.concept_id, result.status);
+    for (const id of result.unlocked) setStatus(id, "learned");
+  }, [result, setStatus]);
+
   if (loading) return <p>Генерация вопросов…</p>;
   if (questions.length === 0) return <p>Вопросы недоступны.</p>;
 
   if (result) {
-    // Применяем новые статусы к стору, чтобы граф перекрасился.
-    setStatus(result.concept_id, result.status);
-    for (const id of result.unlocked) setStatus(id, "learned");
     return (
       <div>
         <h4>Результат: {Math.round(result.score * 100)}%</h4>

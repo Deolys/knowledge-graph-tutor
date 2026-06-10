@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
+import { MessageCircle, X } from "lucide-react";
 import { useGraph } from "../../hooks/useGraph";
 import { useProgress } from "../../hooks/useProgress";
 import type { ConceptStatus, GraphNode } from "../../types";
+import { Button } from "@/components/ui/button";
 import { NodePanel } from "./NodePanel";
 import { QAChat } from "../qa/QAChat";
 
@@ -14,19 +16,15 @@ interface Props {
 export const NODE_COLORS: Record<ConceptStatus, string> = {
   not_started: "#94a3b8",
   in_progress: "#3b82f6",
-  learned: "#22c55e",
-  locked: "#e2e8f0",
+  learned:     "#22c55e",
+  locked:      "#e2e8f0",
 };
 
 export function GraphView({ bookId, sessionId }: Props) {
-  const { graph, loading, selectedNode, selectNode } = useGraph(
-    bookId,
-    sessionId,
-  );
+  const { graph, loading, selectedNode, selectNode } = useGraph(bookId, sessionId);
   const { byConcept } = useProgress(sessionId);
   const [qaOpen, setQaOpen] = useState(false);
 
-  // Статус узла: прогресс из стора важнее, чем статус из графа.
   const data = useMemo(() => {
     if (!graph) return { nodes: [], links: [] };
     return {
@@ -42,17 +40,32 @@ export function GraphView({ bookId, sessionId }: Props) {
     };
   }, [graph, byConcept]);
 
-  if (loading) return <p style={{ padding: 40 }}>Загрузка графа…</p>;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <div className="size-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          Загрузка графа…
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      <div style={{ flex: 1, position: "relative" }}>
-        <button
-          onClick={() => setQaOpen((v) => !v)}
-          style={{ position: "absolute", top: 12, right: 12, zIndex: 10 }}
-        >
-          {qaOpen ? "Закрыть QA" : "Спросить"}
-        </button>
+    <div className="flex h-screen bg-background overflow-hidden">
+      <div className="relative flex-1">
+        <div className="absolute top-3 right-3 z-10">
+          <Button
+            variant={qaOpen ? "default" : "outline"}
+            size="sm"
+            onClick={() => setQaOpen((v) => !v)}
+            className="gap-2"
+          >
+            {qaOpen ? <X className="size-4" /> : <MessageCircle className="size-4" />}
+            {qaOpen ? "Закрыть" : "Спросить"}
+          </Button>
+        </div>
+
         <ForceGraph2D
           graphData={data}
           nodeId="id"

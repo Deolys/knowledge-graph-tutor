@@ -121,6 +121,15 @@ axios — HTTP клиент
 Adding shadcn components example:
 npx shadcn@latest add card button dialog progress badge tabs
 
+CSS class merging — always use `cn()` from `@/lib/utils`, never template literals or array.join:
+```tsx
+import { cn } from "@/lib/utils"
+// ✓
+<div className={cn("base-class", isActive && "active", variant === "ghost" && "text-muted")} />
+// ✗
+<div className={["base", isActive ? "active" : ""].join(" ")} />
+```
+
 Aliases: {
     "baseUrl": ".",
     "paths": {

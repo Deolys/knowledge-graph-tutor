@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
+import { X, FlaskConical } from "lucide-react";
 import type { Concept, GraphNode } from "../../types";
 import { getConcept } from "../../api/concepts";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 import { TestView } from "../test/TestView";
 
 interface Props {
@@ -9,7 +13,6 @@ interface Props {
   onClose: () => void;
 }
 
-/** Боковая панель узла: определение + запуск теста. */
 export function NodePanel({ node, sessionId, onClose }: Props) {
   const [concept, setConcept] = useState<Concept | null>(null);
   const [testing, setTesting] = useState(false);
@@ -21,42 +24,52 @@ export function NodePanel({ node, sessionId, onClose }: Props) {
   }, [node.id]);
 
   return (
-    <aside
-      style={{
-        width: 360,
-        borderLeft: "1px solid #e2e8f0",
-        padding: 20,
-        overflowY: "auto",
-      }}
-    >
-      <button onClick={onClose} style={{ float: "right" }}>
-        ✕
-      </button>
-      <h3>{node.name}</h3>
-      {!concept ? (
-        <p>Загрузка…</p>
-      ) : testing ? (
-        <TestView
-          conceptId={concept.id}
-          sessionId={sessionId}
-          onDone={() => setTesting(false)}
-        />
-      ) : (
-        <>
-          <p>{concept.definition}</p>
-          {concept.formula && (
-            <pre style={{ background: "#f1f5f9", padding: 8 }}>
-              {concept.formula}
-            </pre>
+    <aside className="w-80 border-l border-border flex flex-col shrink-0 bg-card">
+      <div className="flex items-start justify-between gap-2 p-4">
+        <h3 className="font-semibold leading-tight">{node.name}</h3>
+        <Button variant="ghost" size="icon" className="size-7 shrink-0 -mt-0.5" onClick={onClose}>
+          <X className="size-4" />
+        </Button>
+      </div>
+      <Separator />
+
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          {!concept ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">
+              <div className="size-4 rounded-full border-2 border-muted-foreground border-t-transparent animate-spin" />
+              Загрузка…
+            </div>
+          ) : testing ? (
+            <TestView
+              conceptId={concept.id}
+              sessionId={sessionId}
+              onDone={() => setTesting(false)}
+            />
+          ) : (
+            <>
+              <p className="text-sm leading-relaxed">{concept.definition}</p>
+
+              {concept.formula && (
+                <div className="rounded-md bg-muted px-3 py-2">
+                  <pre className="text-xs font-mono whitespace-pre-wrap">{concept.formula}</pre>
+                </div>
+              )}
+
+              {concept.quote && (
+                <blockquote className="border-l-2 border-border pl-3 text-sm text-muted-foreground italic">
+                  {concept.quote}
+                </blockquote>
+              )}
+
+              <Button className="w-full gap-2" onClick={() => setTesting(true)}>
+                <FlaskConical className="size-4" />
+                Пройти тест
+              </Button>
+            </>
           )}
-          {concept.quote && (
-            <blockquote style={{ color: "#64748b", fontStyle: "italic" }}>
-              {concept.quote}
-            </blockquote>
-          )}
-          <button onClick={() => setTesting(true)}>Пройти тест</button>
-        </>
-      )}
+        </div>
+      </ScrollArea>
     </aside>
   );
 }

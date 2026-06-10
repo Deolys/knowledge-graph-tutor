@@ -1,6 +1,12 @@
-import { useState } from "react";
+import { useRef, useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
+import { Send } from "lucide-react";
 import { askQuestion } from "../../api/qa";
 import type { QASource } from "../../types";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Badge } from "@/components/ui/badge";
 
 interface Props {
   bookId: string;
@@ -13,11 +19,15 @@ interface Message {
   sources?: QASource[];
 }
 
-/** Чат с ответами на основе графа знаний. */
 export function QAChat({ bookId, sessionId }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, busy]);
 
   const send = async () => {
     const query = input.trim();
@@ -26,55 +36,72 @@ export function QAChat({ bookId, sessionId }: Props) {
     setMessages((m) => [...m, { role: "user", text: query }]);
     setBusy(true);
     try {
-      const res = await askQuestion({
-        query,
-        book_id: bookId,
-        session_id: sessionId,
-      });
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", text: res.answer, sources: res.sources },
-      ]);
+      const res = await askQuestion({ query, book_id: bookId, session_id: sessionId });
+      setMessages((m) => [...m, { role: "assistant", text: res.answer, sources: res.sources }]);
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <aside
-      style={{
-        width: 360,
-        borderLeft: "1px solid #e2e8f0",
-        padding: 16,
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
-      <h3>Вопрос по учебнику</h3>
-      <div style={{ flex: 1, overflowY: "auto" }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ marginBottom: 12 }}>
-            <b>{m.role === "user" ? "Вы" : "Ассистент"}:</b> {m.text}
-            {m.sources && m.sources.length > 0 && (
-              <div style={{ fontSize: 12, color: "#64748b" }}>
-                Источники: {m.sources.map((s) => s.name).join(", ")}
+    <aside className="w-80 border-l border-border flex flex-col shrink-0 bg-card">
+      <div className="p-4 font-semibold">Вопрос по учебнику</div>
+      <Separator />
+
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-3">
+          {messages.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              Задайте вопрос по содержанию учебника
+            </p>
+          )}
+          {messages.map((m, i) => (
+            <div
+              key={i}
+              className={cn("flex flex-col gap-1", m.role === "user" ? "items-end" : "items-start")}
+            >
+              <div
+                className={cn(
+                  "rounded-lg px-3 py-2 text-sm max-w-[90%]",
+                  m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+                )}
+              >
+                {m.text}
               </div>
-            )}
-          </div>
-        ))}
-        {busy && <p style={{ color: "#64748b" }}>Думаю…</p>}
-      </div>
-      <div style={{ display: "flex", gap: 8 }}>
+              {m.sources && m.sources.length > 0 && (
+                <div className="flex flex-wrap gap-1 px-1">
+                  {m.sources.map((s) => (
+                    <Badge key={s.id} variant="outline" className="text-xs">
+                      {s.name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+          {busy && (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <div className="size-3 rounded-full border-2 border-muted-foreground border-t-transparent animate-spin" />
+              Думаю…
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+      </ScrollArea>
+
+      <Separator />
+      <div className="p-3 flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && send()}
           placeholder="Ваш вопрос…"
-          style={{ flex: 1 }}
+          disabled={busy}
+          className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
         />
-        <button onClick={send} disabled={busy}>
-          →
-        </button>
+        <Button size="icon" variant="default" onClick={send} disabled={busy || !input.trim()}>
+          <Send className="size-4" />
+        </Button>
       </div>
     </aside>
   );

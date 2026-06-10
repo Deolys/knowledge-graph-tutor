@@ -117,3 +117,13 @@ shadcn/ui — компоненты (построены на Radix UI + Tailwind)
 Zustand — стейт
 react-router-dom v7 — роутинг
 axios — HTTP клиент
+
+Adding shadcn components example:
+npx shadcn@latest add card button dialog progress badge tabs
+
+Aliases: {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    }
+}

@@ -110,3 +110,10 @@ A concept is marked `learned` when: `score >= 0.7` AND all concepts with `depend
 - **Multilingual embeddings** — `paraphrase-multilingual-MiniLM-L12-v2` supports Russian-language textbooks
 - **pipeline.py as single entry point** — API routers never call individual ingestion steps directly, only `pipeline.py`; this makes step reordering/replacement safe
 - **pgvector for QA** — concept embeddings stored in PostgreSQL enable vector search without a separate vector DB
+
+React 19 + TypeScript + Vite
+TailwindCSS v4
+shadcn/ui — компоненты (построены на Radix UI + Tailwind)
+Zustand — стейт
+react-router-dom v7 — роутинг
+axios — HTTP клиент

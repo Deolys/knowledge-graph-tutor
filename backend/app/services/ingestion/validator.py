@@ -10,11 +10,29 @@ from app.ontology import Profile
 
 
 def quote_in_text(quote: str | None, text: str) -> bool:
-    """Нормализованная проверка вхождения (пробелы, регистр, переносы)."""
+    """Нормализованная проверка вхождения цитаты в тексте.
+
+    Сначала точное совпадение (нормализованные пробелы+регистр).
+    Если не совпало — проверяем, что хотя бы 3 последовательных слова
+    из цитаты встречаются подряд в тексте (LLM иногда слегка перефразирует).
+    Для коротких цитат (< 4 слов) достаточно любого одного слова длиной ≥ 5.
+    """
     if not quote:
         return False
     norm = lambda s: " ".join(s.lower().split())
-    return norm(quote)[:200] in norm(text)
+    nq = norm(quote)[:200]
+    nt = norm(text)
+    if nq in nt:
+        return True
+    words = nq.split()
+    if len(words) >= 3:
+        for i in range(len(words) - 2):
+            trigram = " ".join(words[i : i + 3])
+            if trigram in nt:
+                return True
+    elif words:
+        return any(w in nt for w in words if len(w) >= 5)
+    return False
 
 
 def validate_entities(

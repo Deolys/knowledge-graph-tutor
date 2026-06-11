@@ -48,14 +48,16 @@
    ```bash
    docker-compose up -d --build backend 2>&1 | tail -4
    ```
-3. Примените миграции и синхронизируйте онтологию (один раз):
+3. Примените миграции и перезапустите backend (один раз):
 
    ```bash
    docker-compose exec backend alembic upgrade head
-   docker-compose exec backend python ../scripts/sync_ontology.py
+   docker-compose restart backend
    ```
-   Синхронизация онтологии обязательна до загрузки книг: таблица `entities`
-   ссылается на `entity_types` по внешнему ключу.
+   Онтология синхронизируется в БД автоматически при старте backend
+   (таблица `entities` ссылается на `entity_types` по внешнему ключу).
+   Локально (без Docker) можно вместо этого выполнить
+   `python scripts/sync_ontology.py`.
 
 - Backend: http://localhost:8000 (Swagger: `/docs`)
 - Frontend: http://localhost:3000

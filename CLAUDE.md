@@ -137,4 +137,6 @@ Aliases: {
     }
 }
 
-Do not write the comments in the frontend code
+CRITICAL:
+ * Do not write the comments in the frontend code
+ 

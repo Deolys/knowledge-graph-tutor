@@ -1,4 +1,4 @@
-"""Схемы книг и графа."""
+"""Схемы книг и типизированного графа."""
 import uuid
 from datetime import datetime
 
@@ -9,6 +9,7 @@ class BookOut(BaseModel):
     id: uuid.UUID
     title: str
     filename: str
+    profile: str
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -27,6 +28,7 @@ class BookStatusOut(BaseModel):
     """Статус обработки книги: агрегат по главам."""
     id: uuid.UUID
     title: str
+    profile: str
     chapters: list[ChapterStatusOut]
     done: bool
 
@@ -36,10 +38,11 @@ class BookListItem(BaseModel):
     id: uuid.UUID
     title: str
     filename: str
+    profile: str
     created_at: datetime
     chapters_total: int
     chapters_done: int
-    concepts_count: int
+    entities_count: int
     # processing | done | error — агрегатный статус по главам
     status: str
 
@@ -47,14 +50,15 @@ class BookListItem(BaseModel):
 class GraphNode(BaseModel):
     id: uuid.UUID
     name: str
-    chapter_id: uuid.UUID
+    entity_type: str
+    chapter_id: uuid.UUID | None = None
     status: str = "not_started"
 
 
 class GraphEdge(BaseModel):
     source: uuid.UUID
     target: uuid.UUID
-    type: str
+    relation_type: str
     confidence: float
 
 

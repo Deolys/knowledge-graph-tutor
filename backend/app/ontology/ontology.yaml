@@ -1,0 +1,231 @@
+version: "1.0"
+
+entity_types:
+  # ─── CORE: универсальные, активны для любой книги ───
+  concept:
+    label: "Понятие"
+    description: "Термин, явно определённый в тексте"
+    attrs: [definition, aliases]
+    color: "#3b82f6"
+    tier: core
+
+  chapter:
+    label: "Глава/Раздел"
+    description: "Структурная единица книги"
+    attrs: [title, order]
+    color: "#64748b"
+    tier: core
+
+  example:
+    label: "Пример"
+    description: "Конкретный пример, иллюстрирующий понятие или метод"
+    attrs: [description]
+    color: "#f59e0b"
+    tier: core
+
+  problem:
+    label: "Задача"
+    description: "Задача, упражнение или проблема из текста"
+    attrs: [statement, difficulty]
+    color: "#f97316"
+    tier: core
+
+  person:
+    label: "Персона"
+    description: "Учёный, автор, исторический деятель"
+    attrs: [full_name, years, role]
+    color: "#a855f7"
+    tier: core
+
+  # ─── STEM: математика, физика, CS ───
+  formula:
+    label: "Формула"
+    description: "Математическое выражение в LaTeX"
+    attrs: [latex, variables]
+    color: "#10b981"
+    tier: stem
+
+  theorem:
+    label: "Теорема/Закон"
+    description: "Формальное утверждение: теорема, закон, принцип, лемма"
+    attrs: [statement, proof_sketch, kind]
+    color: "#06b6d4"
+    tier: stem
+
+  method:
+    label: "Метод/Алгоритм"
+    description: "Процедура с шагами: алгоритм, методика, приём"
+    attrs: [steps, complexity]
+    color: "#8b5cf6"
+    tier: stem
+
+  # ─── TECH: IT и инженерия ───
+  tool:
+    label: "Инструмент/Технология"
+    description: "Конкретная технология, библиотека, система, язык"
+    attrs: [category, vendor]
+    color: "#ec4899"
+    tier: tech
+
+  standard:
+    label: "Стандарт/Протокол"
+    description: "Спецификация, стандарт, протокол, формат"
+    attrs: [organization, year]
+    color: "#14b8a6"
+    tier: tech
+
+  # ─── SOCIAL: история, экономика, право ───
+  event:
+    label: "Событие"
+    description: "Историческое или значимое событие"
+    attrs: [date, location, outcome]
+    color: "#ef4444"
+    tier: social
+
+  organization:
+    label: "Организация"
+    description: "Институт, компания, государство, сообщество"
+    attrs: [founded, type]
+    color: "#84cc16"
+    tier: social
+
+  period:
+    label: "Период"
+    description: "Временной интервал, эпоха, этап"
+    attrs: [start, end]
+    color: "#78716c"
+    tier: social
+
+  process:
+    label: "Процесс"
+    description: "Длящийся процесс: экономический, социальный, природный"
+    attrs: [stages]
+    color: "#0ea5e9"
+    tier: social
+
+relation_types:
+  # ─── Структурные (core) ───
+  DEFINED_IN:
+    label: "определено в"
+    domain: [concept, theorem, method, formula, tool, event]
+    range: [chapter]
+    traversal_weight: 0.3
+
+  REQUIRES:
+    label: "требует знания"
+    domain: [concept, method, theorem]
+    range: [concept, method, theorem]
+    transitive: true
+    traversal_weight: 1.0
+
+  PART_OF:
+    label: "является частью"
+    domain: [concept, method, process, period]
+    range: [concept, method, process, period]
+    transitive: true
+    traversal_weight: 0.8
+
+  ILLUSTRATES:
+    label: "иллюстрирует"
+    domain: [example]
+    range: [concept, method, theorem, process]
+    traversal_weight: 0.7
+
+  CONTRASTS_WITH:
+    label: "противопоставляется"
+    domain: [concept, method]
+    range: [concept, method]
+    symmetric: true
+    traversal_weight: 0.6
+
+  GENERALIZES:
+    label: "обобщает"
+    domain: [concept, theorem]
+    range: [concept, theorem]
+    traversal_weight: 0.6
+
+  SOLVES:
+    label: "решает"
+    domain: [method, tool]
+    range: [problem]
+    traversal_weight: 0.7
+
+  # ─── STEM ───
+  EXPRESSED_BY:
+    label: "выражается формулой"
+    domain: [concept, theorem, method]
+    range: [formula]
+    traversal_weight: 0.9
+
+  HAS_STEP:
+    label: "включает шаг"
+    domain: [method]
+    range: [method]
+    traversal_weight: 0.8
+
+  USES:
+    label: "использует"
+    domain: [method, tool]
+    range: [concept, formula, tool]
+    traversal_weight: 0.8
+
+  PROVED_BY:
+    label: "доказывается"
+    domain: [theorem]
+    range: [method, theorem]
+    traversal_weight: 0.5
+
+  # ─── Атрибуция ───
+  AUTHORED_BY:
+    label: "предложено"
+    domain: [concept, theorem, method, tool]
+    range: [person]
+    traversal_weight: 0.3
+
+  # ─── TECH ───
+  IMPLEMENTS:
+    label: "реализует"
+    domain: [tool]
+    range: [method, concept, standard]
+    traversal_weight: 0.7
+
+  COMPLIES_WITH:
+    label: "соответствует стандарту"
+    domain: [tool, method]
+    range: [standard]
+    traversal_weight: 0.4
+
+  # ─── SOCIAL ───
+  OCCURRED_IN:
+    label: "произошло в"
+    domain: [event]
+    range: [period]
+    traversal_weight: 0.6
+
+  PARTICIPATED_IN:
+    label: "участвовал в"
+    domain: [person, organization]
+    range: [event, process]
+    traversal_weight: 0.6
+
+  CAUSED:
+    label: "привело к"
+    domain: [event, process]
+    range: [event, process]
+    traversal_weight: 0.9
+
+profiles:
+  universal:
+    entity_types: [concept, chapter, example, problem, person]
+  math:
+    entity_types: [concept, chapter, example, problem, person,
+                   formula, theorem, method]
+  cs:
+    entity_types: [concept, chapter, example, problem, person,
+                   formula, method, tool, standard]
+  history:
+    entity_types: [concept, chapter, example, person,
+                   event, organization, period, process]
+  economics:
+    entity_types: [concept, chapter, example, problem, person,
+                   formula, method, process, organization]

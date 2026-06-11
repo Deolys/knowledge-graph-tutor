@@ -1,34 +1,41 @@
-"""Шаги 2-3: извлечение понятий и связей через LLM (два отдельных вызова).
+"""Извлечение типизированных сущностей и отношений (два LLM-вызова на главу).
 
-Намеренно два вызова на главу, а не один большой — так модель точнее
-и проще отлаживать каждый шаг. Промпты берутся из app.prompts.
+Промпты собираются динамически из активного профиля онтологии
+(prompt_builder), а не хардкодятся. Намеренно два вызова на главу.
 """
 import json
 
-from app import prompts
+from app.ontology import Profile
 from app.services import llm
+from app.services.ingestion import prompt_builder
 
 
-async def extract_concepts(chapter_title: str, chapter_text: str) -> list[dict]:
-    """Вызов 1: понятия из текста главы."""
+async def extract_entities(
+    profile: Profile, chapter_title: str, chapter_text: str
+) -> list[dict]:
+    """Вызов 1: типизированные сущности из текста главы."""
     data = await llm.generate_json(
-        prompts.EXTRACT_CONCEPTS_SYSTEM,
-        prompts.extract_concepts_user(chapter_title, chapter_text),
+        prompt_builder.build_entity_extraction_prompt(profile),
+        prompt_builder.entity_extraction_user(chapter_title, chapter_text),
     )
-    return data.get("concepts", [])
+    return data.get("entities", [])
 
 
 async def extract_relations(
-    concepts: list[dict], chapter_text: str
+    profile: Profile, entities: list[dict], chapter_text: str
 ) -> list[dict]:
-    """Вызов 2: связи между уже извлечёнными понятиями."""
-    if len(concepts) < 2:
+    """Вызов 2: типизированные отношения между извлечёнными сущностями."""
+    if len(entities) < 2:
         return []
-    concepts_json = json.dumps(
-        [{"name": c["name"]} for c in concepts], ensure_ascii=False
+    entities_json = json.dumps(
+        [
+            {"entity_type": e.get("entity_type"), "name": e.get("name")}
+            for e in entities
+        ],
+        ensure_ascii=False,
     )
     data = await llm.generate_json(
-        prompts.EXTRACT_RELATIONS_SYSTEM,
-        prompts.extract_relations_user(concepts_json, chapter_text),
+        prompt_builder.build_relation_extraction_prompt(profile),
+        prompt_builder.relation_extraction_user(entities_json, chapter_text),
     )
     return data.get("relations", [])

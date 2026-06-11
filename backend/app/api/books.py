@@ -1,17 +1,17 @@
-"""Роутер книг: upload, статус обработки, граф."""
+"""Роутер книг: upload (с профилем), статус обработки, типизированный граф."""
+import asyncio
 import logging
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-
-logger = logging.getLogger(__name__)
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session_maker, get_session
-from app.models import Book, Chapter, Concept, Progress, Relation
+from app.models import Book, Chapter, Entity, Progress, Relation
+from app.ontology import load_ontology
 from app.schemas.book import (
     BookListItem,
     BookOut,
@@ -22,6 +22,8 @@ from app.schemas.book import (
     GraphOut,
 )
 from app.services.ingestion import pipeline
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/books", tags=["books"])
 
@@ -40,13 +42,20 @@ async def _run_ingestion_bg(book_id: uuid.UUID, pdf_path: str) -> None:
 @router.post("/upload", response_model=BookOut)
 async def upload_book(
     file: UploadFile = File(...),
+    profile: str = Form("universal"),
     session: AsyncSession = Depends(get_session),
 ) -> Book:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(400, "Ожидается PDF-файл")
+    if profile not in load_ontology().profiles:
+        raise HTTPException(400, f"Неизвестный профиль: {profile}")
 
     os.makedirs(settings.upload_dir, exist_ok=True)
-    book = Book(title=file.filename.rsplit(".", 1)[0], filename=file.filename)
+    book = Book(
+        title=file.filename.rsplit(".", 1)[0],
+        filename=file.filename,
+        profile=profile,
+    )
     session.add(book)
     await session.flush()
 
@@ -54,9 +63,6 @@ async def upload_book(
     with open(dest, "wb") as f:
         f.write(await file.read())
     await session.commit()
-
-    # Ingestion запускается отдельной фоновой задачей с собственной сессией.
-    import asyncio
 
     asyncio.create_task(_run_ingestion_bg(book.id, dest))
     return book
@@ -75,7 +81,6 @@ async def list_books(
 
     book_ids = [b.id for b in books]
 
-    # Агрегаты по главам: всего и по статусам — одним запросом на каждую группу.
     ch_rows = (
         await session.execute(
             select(Chapter.book_id, Chapter.status, func.count())
@@ -93,14 +98,14 @@ async def list_books(
         elif st == "error":
             error_by_book[bid] = error_by_book.get(bid, 0) + cnt
 
-    concept_rows = (
+    entity_rows = (
         await session.execute(
-            select(Concept.book_id, func.count())
-            .where(Concept.book_id.in_(book_ids))
-            .group_by(Concept.book_id)
+            select(Entity.book_id, func.count())
+            .where(Entity.book_id.in_(book_ids))
+            .group_by(Entity.book_id)
         )
     ).all()
-    concepts_by_book = {bid: cnt for bid, cnt in concept_rows}
+    entities_by_book = {bid: cnt for bid, cnt in entity_rows}
 
     items: list[BookListItem] = []
     for b in books:
@@ -116,10 +121,11 @@ async def list_books(
                 id=b.id,
                 title=b.title,
                 filename=b.filename,
+                profile=b.profile,
                 created_at=b.created_at,
                 chapters_total=total,
                 chapters_done=done,
-                concepts_count=concepts_by_book.get(b.id, 0),
+                entities_count=entities_by_book.get(b.id, 0),
                 status=status,
             )
         )
@@ -146,7 +152,11 @@ async def book_status(
         c.status in ("done", "error") for c in chapters
     )
     return BookStatusOut(
-        id=book.id, title=book.title, chapters=chapters, done=done
+        id=book.id,
+        title=book.title,
+        profile=book.profile,
+        chapters=chapters,
+        done=done,
     )
 
 
@@ -156,43 +166,40 @@ async def book_graph(
     session_id: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> GraphOut:
-    concepts = (
+    entities = (
         await session.execute(
-            select(Concept).where(Concept.book_id == book_id)
+            select(Entity).where(Entity.book_id == book_id)
         )
     ).scalars().all()
-    concept_ids = [c.id for c in concepts]
+    entity_ids = [e.id for e in entities]
 
-    # Статусы прогресса для сессии (если передана)
-    status_by_concept: dict[uuid.UUID, str] = {}
-    if session_id and concept_ids:
+    status_by_entity: dict[uuid.UUID, str] = {}
+    if session_id and entity_ids:
         prog = (
             await session.execute(
                 select(Progress).where(
                     Progress.session_id == session_id,
-                    Progress.concept_id.in_(concept_ids),
+                    Progress.entity_id.in_(entity_ids),
                 )
             )
         ).scalars().all()
-        status_by_concept = {p.concept_id: p.status for p in prog}
+        status_by_entity = {p.entity_id: p.status for p in prog}
 
     nodes = [
         GraphNode(
-            id=c.id,
-            name=c.name,
-            chapter_id=c.chapter_id,
-            status=status_by_concept.get(c.id, "not_started"),
+            id=e.id,
+            name=e.name,
+            entity_type=e.entity_type,
+            chapter_id=e.chapter_id,
+            status=status_by_entity.get(e.id, "not_started"),
         )
-        for c in concepts
+        for e in entities
     ]
 
-    if concept_ids:
+    if entity_ids:
         relations = (
             await session.execute(
-                select(Relation).where(
-                    Relation.from_id.in_(concept_ids),
-                    Relation.to_id.in_(concept_ids),
-                )
+                select(Relation).where(Relation.book_id == book_id)
             )
         ).scalars().all()
     else:
@@ -202,7 +209,7 @@ async def book_graph(
         GraphEdge(
             source=r.from_id,
             target=r.to_id,
-            type=r.type,
+            relation_type=r.relation_type,
             confidence=r.confidence,
         )
         for r in relations

@@ -1,12 +1,15 @@
 import { useRef, useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Send } from "lucide-react";
+import { Send, Sparkles, Search } from "lucide-react";
 import { askQuestion } from "../../api/qa";
-import type { QASource } from "../../types";
+import type { QAResponse, QASource, TraversalEdge } from "../../types";
+import { useGraphStore } from "../../store/graphStore";
+import { useOntologyStore } from "../../store/ontologyStore";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { Markdown } from "@/components/ui/markdown";
 
 interface Props {
   bookId: string;
@@ -17,6 +20,9 @@ interface Message {
   role: "user" | "assistant";
   text: string;
   sources?: QASource[];
+  traversalNodes?: string[];
+  traversalEdges?: TraversalEdge[];
+  mode?: QAResponse["mode"];
 }
 
 export function QAChat({ bookId, sessionId }: Props) {
@@ -25,9 +31,22 @@ export function QAChat({ bookId, sessionId }: Props) {
   const [busy, setBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const setHighlight = useGraphStore((s) => s.setHighlight);
+  const graph = useGraphStore((s) => s.graph);
+  const selectNode = useGraphStore((s) => s.selectNode);
+  const entityTypes = useOntologyStore((s) => s.entityTypes);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
+
+  const highlightMessage = (m: Message) => {
+    if (!m.traversalNodes?.length) return;
+    setHighlight({
+      nodes: new Set(m.traversalNodes),
+      edges: m.traversalEdges ?? [],
+    });
+  };
 
   const send = async () => {
     const query = input.trim();
@@ -37,10 +56,24 @@ export function QAChat({ bookId, sessionId }: Props) {
     setBusy(true);
     try {
       const res = await askQuestion({ query, book_id: bookId, session_id: sessionId });
-      setMessages((m) => [...m, { role: "assistant", text: res.answer, sources: res.sources }]);
+      const msg: Message = {
+        role: "assistant",
+        text: res.answer,
+        sources: res.sources,
+        traversalNodes: res.traversal_nodes,
+        traversalEdges: res.traversal_edges,
+        mode: res.mode,
+      };
+      setMessages((m) => [...m, msg]);
+      highlightMessage(msg);
     } finally {
       setBusy(false);
     }
+  };
+
+  const openSource = (s: QASource) => {
+    const node = graph?.nodes.find((n) => n.id === s.id);
+    if (node) selectNode(node);
   };
 
   return (
@@ -62,23 +95,50 @@ export function QAChat({ bookId, sessionId }: Props) {
             >
               <div
                 className={cn(
-                  "rounded-lg px-3 py-2 text-sm max-w-[90%] break-words whitespace-pre-wrap",
-                  m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
+                  "rounded-lg px-3 py-2 text-sm max-w-[90%] break-words",
+                  m.role === "user"
+                    ? "bg-primary text-primary-foreground whitespace-pre-wrap"
+                    : "bg-muted text-foreground",
                 )}
               >
-                {m.text}
+                {m.role === "assistant" ? <Markdown content={m.text} /> : m.text}
               </div>
+
+              {m.role === "assistant" && m.mode === "vector_fallback" && (
+                <span className="flex items-center gap-1 px-1 text-[11px] text-muted-foreground">
+                  <Search className="size-3" />
+                  векторный поиск
+                </span>
+              )}
+
               {m.sources && m.sources.length > 0 && (
-                <div className="flex flex-wrap gap-1 px-1 max-w-full">
-                  {m.sources.map((s) => (
-                    <Badge
-                      key={s.id}
-                      variant="outline"
-                      className="h-auto max-w-full whitespace-normal break-words py-0.5 text-xs leading-snug"
+                <div className="flex flex-col gap-1.5 px-1 max-w-full">
+                  <div className="flex flex-wrap gap-1">
+                    {m.sources.map((s) => {
+                      const color = entityTypes[s.entity_type]?.color;
+                      return (
+                        <button key={s.id} type="button" onClick={() => openSource(s)}>
+                          <Badge
+                            variant="outline"
+                            className="h-auto max-w-full cursor-pointer whitespace-normal break-words py-0.5 text-xs leading-snug hover:bg-accent"
+                            style={color ? { borderColor: color } : undefined}
+                          >
+                            {s.name}
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {m.traversalNodes && m.traversalNodes.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => highlightMessage(m)}
+                      className="flex w-fit items-center gap-1 text-[11px] text-primary hover:underline"
                     >
-                      {s.name}
-                    </Badge>
-                  ))}
+                      <Sparkles className="size-3" />
+                      Показать на графе
+                    </button>
+                  )}
                 </div>
               )}
             </div>

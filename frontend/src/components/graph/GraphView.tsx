@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D, { type ForceGraphMethods } from "react-force-graph-2d";
-import { Maximize2, MessageCircle, Settings2, X } from "lucide-react";
+import { Filter, Maximize2, MessageCircle, Settings2, X } from "lucide-react";
 import { useGraph } from "../../hooks/useGraph";
 import { useProgress } from "../../hooks/useProgress";
+import { useOntology } from "../../hooks/useOntology";
 import { useGraphSettings } from "../../store/graphSettingsStore";
-import type { ConceptStatus, GraphNode } from "../../types";
+import { getBookStatus } from "../../api/books";
+import type { EntityStatus, GraphNode } from "../../types";
 import { Button } from "@/components/ui/button";
 import { NodePanel } from "./NodePanel";
 import { GraphSettingsDialog } from "./GraphSettingsDialog";
+import { GraphFilters } from "./GraphFilters";
 import { QAChat } from "../qa/QAChat";
 
 interface Props {
@@ -15,14 +18,16 @@ interface Props {
   sessionId: string;
 }
 
-export const NODE_COLORS: Record<ConceptStatus, string> = {
-  not_started: "#94a3b8",
+const FALLBACK_COLOR = "#94a3b8";
+
+const STATUS_RING: Record<EntityStatus, string> = {
+  not_started: "#cbd5e1",
   in_progress: "#3b82f6",
   learned: "#22c55e",
-  locked: "#cbd5e1",
+  locked: "#f43f5e",
 };
 
-const STATUS_LABELS: Record<ConceptStatus, string> = {
+const STATUS_LABELS: Record<EntityStatus, string> = {
   not_started: "Не начато",
   in_progress: "В процессе",
   learned: "Изучено",
@@ -30,6 +35,7 @@ const STATUS_LABELS: Record<ConceptStatus, string> = {
 };
 
 interface GNode extends GraphNode {
+  color: string;
   x?: number;
   y?: number;
   neighbors?: GNode[];
@@ -39,21 +45,41 @@ interface GNode extends GraphNode {
 interface GLink {
   source: GNode | string;
   target: GNode | string;
-  type: string;
+  relation_type: string;
 }
 
 export function GraphView({ bookId, sessionId }: Props) {
-  const { graph, loading, selectedNode, selectNode } = useGraph(bookId, sessionId);
-  const { byConcept } = useProgress(sessionId);
+  const { graph, loading, selectedNode, selectNode, highlight, setHighlight } =
+    useGraph(bookId, sessionId);
+  const { byEntity } = useProgress(sessionId);
+  const { entityTypes, relationTypes } = useOntology();
   const settings = useGraphSettings();
 
   const [qaOpen, setQaOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [hoverNode, setHoverNode] = useState<GNode | null>(null);
+  const [chapterTitles, setChapterTitles] = useState<Record<string, string>>({});
+
+  const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
+  const [hiddenRelations, setHiddenRelations] = useState<Set<string>>(new Set());
+  const [hiddenChapters, setHiddenChapters] = useState<Set<string>>(new Set());
 
   const fgRef = useRef<ForceGraphMethods<GNode, GLink>>(undefined);
   const graphBoxRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    getBookStatus(bookId)
+      .then((s) => {
+        const map: Record<string, string> = {};
+        for (const ch of s.chapters) map[ch.id] = ch.title;
+        setChapterTitles(map);
+      })
+      .catch(() => undefined);
+  }, [bookId]);
+
+  useEffect(() => () => setHighlight(null), [setHighlight]);
 
   useEffect(() => {
     const el = graphBoxRef.current;
@@ -66,12 +92,32 @@ export function GraphView({ bookId, sessionId }: Props) {
     return () => ro.disconnect();
   }, [loading]);
 
+  const present = useMemo(() => {
+    const types = new Set<string>();
+    const rels = new Set<string>();
+    const chapters = new Set<string>();
+    if (graph) {
+      for (const n of graph.nodes) {
+        types.add(n.entity_type);
+        if (n.chapter_id) chapters.add(n.chapter_id);
+      }
+      for (const e of graph.edges) rels.add(e.relation_type);
+    }
+    return { types, rels, chapters };
+  }, [graph]);
+
   const data = useMemo(() => {
     if (!graph) return { nodes: [] as GNode[], links: [] as GLink[] };
 
-    const nodes: GNode[] = graph.nodes.map((n) => ({
+    const visibleNodes = graph.nodes.filter(
+      (n) =>
+        !hiddenTypes.has(n.entity_type) &&
+        !(n.chapter_id && hiddenChapters.has(n.chapter_id)),
+    );
+    const nodes: GNode[] = visibleNodes.map((n) => ({
       ...n,
-      status: byConcept[n.id]?.status ?? n.status,
+      status: byEntity[n.id]?.status ?? n.status,
+      color: entityTypes[n.entity_type]?.color ?? FALLBACK_COLOR,
       neighbors: [],
       links: [],
     }));
@@ -79,10 +125,15 @@ export function GraphView({ bookId, sessionId }: Props) {
 
     const links: GLink[] = [];
     for (const e of graph.edges) {
+      if (hiddenRelations.has(e.relation_type)) continue;
       const src = byId.get(e.source);
       const tgt = byId.get(e.target);
       if (!src || !tgt) continue;
-      const link: GLink = { source: src, target: tgt, type: e.type };
+      const link: GLink = {
+        source: src,
+        target: tgt,
+        relation_type: e.relation_type,
+      };
       links.push(link);
       src.neighbors!.push(tgt);
       tgt.neighbors!.push(src);
@@ -90,7 +141,18 @@ export function GraphView({ bookId, sessionId }: Props) {
       tgt.links!.push(link);
     }
     return { nodes, links };
-  }, [graph, byConcept]);
+  }, [graph, byEntity, entityTypes, hiddenTypes, hiddenRelations, hiddenChapters]);
+
+  const traversalNodes = useMemo(
+    () => highlight?.nodes ?? null,
+    [highlight],
+  );
+  const traversalEdges = useMemo(() => {
+    if (!highlight) return new Set<string>();
+    return new Set(
+      highlight.edges.map((e) => `${e.source}->${e.target}:${e.relation_type}`),
+    );
+  }, [highlight]);
 
   const { hlNodes, hlLinks } = useMemo(() => {
     const hlNodes = new Set<GNode>();
@@ -123,14 +185,23 @@ export function GraphView({ bookId, sessionId }: Props) {
     fgRef.current?.zoomToFit(500, 60);
   }, []);
 
+  const isFocusDimmed = useCallback(
+    (node: GNode): number => {
+      if (hlNodes.size > 0) return hlNodes.has(node) ? 1 : 0.15;
+      if (traversalNodes) return traversalNodes.has(node.id) ? 1 : 0.12;
+      return 1;
+    },
+    [hlNodes, traversalNodes],
+  );
+
   const paintNode = useCallback(
     (node: GNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const status = (node.status ?? "not_started") as ConceptStatus;
-      const color = NODE_COLORS[status];
-      const dimmed =
-        hlNodes.size > 0 && !hlNodes.has(node) ? 0.15 : 1;
+      const status = (node.status ?? "not_started") as EntityStatus;
+      const ring = STATUS_RING[status];
+      const alpha = isFocusDimmed(node);
       const isHover = node === hoverNode;
-      ctx.globalAlpha = dimmed;
+      const inTraversal = traversalNodes?.has(node.id);
+      ctx.globalAlpha = alpha;
 
       if (settings.nodeDisplay === "text") {
         const label = node.name;
@@ -143,37 +214,39 @@ export function GraphView({ bookId, sessionId }: Props) {
         const h = fontSize + padY * 2;
 
         roundRect(ctx, node.x! - w / 2, node.y! - h / 2, w, h, fontSize * 0.4);
-        ctx.fillStyle = isHover ? color : "rgba(255,255,255,0.92)";
+        ctx.fillStyle = node.color;
         ctx.fill();
-        ctx.lineWidth = (isHover ? 2 : 1.2) / globalScale;
-        ctx.strokeStyle = color;
+        ctx.lineWidth = (status === "not_started" ? 1 : 2.5) / globalScale;
+        ctx.strokeStyle = ring;
         ctx.stroke();
 
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillStyle = isHover ? "#fff" : "#1e293b";
+        ctx.fillStyle = "#fff";
         ctx.fillText(label, node.x!, node.y!);
 
         node.__bckg = [w, h];
       } else {
         const r = isHover ? 6 : 4.5;
-        if (hlNodes.has(node)) {
+        if (inTraversal) {
           ctx.beginPath();
-          ctx.arc(node.x!, node.y!, r + 2.5, 0, 2 * Math.PI);
-          ctx.fillStyle = isHover ? "#f59e0b" : "#fcd34d";
+          ctx.arc(node.x!, node.y!, r + 3, 0, 2 * Math.PI);
+          ctx.fillStyle = "#fcd34d";
           ctx.fill();
         }
         ctx.beginPath();
         ctx.arc(node.x!, node.y!, r, 0, 2 * Math.PI);
-        ctx.fillStyle = color;
+        ctx.fillStyle = node.color;
         ctx.fill();
-        ctx.lineWidth = 1 / globalScale;
-        ctx.strokeStyle = "rgba(255,255,255,0.85)";
+        ctx.lineWidth = (status === "not_started" ? 1.2 : 2.4) / globalScale;
+        ctx.strokeStyle = ring;
+        if (status === "locked") ctx.setLineDash([2 / globalScale, 2 / globalScale]);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
       ctx.globalAlpha = 1;
     },
-    [settings.nodeDisplay, hlNodes, hoverNode],
+    [settings.nodeDisplay, hoverNode, isFocusDimmed, traversalNodes],
   );
 
   const paintPointerArea = useCallback(
@@ -203,11 +276,13 @@ export function GraphView({ bookId, sessionId }: Props) {
   }
 
   const empty = data.nodes.length === 0;
+  const legendTypes = Object.values(entityTypes).filter((et) =>
+    present.types.has(et.type_name),
+  );
 
   return (
     <div className="flex min-h-0 flex-1 overflow-hidden bg-background">
       <div ref={graphBoxRef} className="relative flex-1 overflow-hidden">
-        {/* Тулбар */}
         <div className="absolute right-3 top-3 z-10 flex gap-2">
           <Button
             variant="outline"
@@ -218,6 +293,15 @@ export function GraphView({ bookId, sessionId }: Props) {
           >
             <Maximize2 className="size-4" />
             <span className="hidden sm:inline">Вписать</span>
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFiltersOpen(true)}
+            className="gap-2"
+          >
+            <Filter className="size-4" />
+            <span className="hidden sm:inline">Фильтры</span>
           </Button>
           <Button
             variant="outline"
@@ -239,24 +323,39 @@ export function GraphView({ bookId, sessionId }: Props) {
           </Button>
         </div>
 
-        {/* Легенда статусов */}
         {!empty && (
-          <div className="absolute bottom-3 left-3 z-10 flex flex-wrap gap-x-4 gap-y-1.5 rounded-lg border border-border bg-background/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
-            {(Object.keys(NODE_COLORS) as ConceptStatus[]).map((s) => (
-              <span key={s} className="flex items-center gap-1.5 text-muted-foreground">
+          <div className="absolute bottom-3 left-3 z-10 max-w-[min(28rem,calc(100%-1.5rem))] space-y-2 rounded-lg border border-border bg-background/80 px-3 py-2 text-xs shadow-sm backdrop-blur">
+            <div className="flex flex-wrap gap-x-3 gap-y-1.5">
+              {legendTypes.map((et) => (
                 <span
-                  className="size-2.5 rounded-full"
-                  style={{ backgroundColor: NODE_COLORS[s] }}
-                />
-                {STATUS_LABELS[s]}
-              </span>
-            ))}
+                  key={et.type_name}
+                  className="flex items-center gap-1.5 text-muted-foreground"
+                >
+                  <span
+                    className="size-2.5 rounded-full"
+                    style={{ backgroundColor: et.color }}
+                  />
+                  {et.label}
+                </span>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-1.5 border-t border-border pt-1.5">
+              {(Object.keys(STATUS_RING) as EntityStatus[]).map((s) => (
+                <span key={s} className="flex items-center gap-1.5 text-muted-foreground">
+                  <span
+                    className="size-2.5 rounded-full border-2 bg-transparent"
+                    style={{ borderColor: STATUS_RING[s] }}
+                  />
+                  {STATUS_LABELS[s]}
+                </span>
+              ))}
+            </div>
           </div>
         )}
 
         {empty ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground">
-            <p>В этом графе пока нет понятий.</p>
+            <p>Граф пуст или всё скрыто фильтрами.</p>
           </div>
         ) : (
           <ForceGraph2D
@@ -271,14 +370,19 @@ export function GraphView({ bookId, sessionId }: Props) {
             onNodeHover={(n) => handleNodeHover(n as GNode | null)}
             onNodeClick={(n) => handleNodeClick(n as GNode)}
             onBackgroundClick={() => selectNode(null)}
-            linkColor={(l) =>
-              hlLinks.has(l as GLink)
-                ? "#f59e0b"
-                : hlNodes.size > 0
-                  ? "rgba(203,213,225,0.25)"
-                  : "#cbd5e1"
+            linkColor={(l) => {
+              const gl = l as GLink;
+              const key = linkKey(gl);
+              if (traversalEdges.has(key)) return "#f59e0b";
+              if (hlLinks.has(gl)) return "#f59e0b";
+              if (hlLinks.size > 0 || traversalNodes) return "rgba(203,213,225,0.2)";
+              return "#cbd5e1";
+            }}
+            linkWidth={(l) =>
+              traversalEdges.has(linkKey(l as GLink)) || hlLinks.has(l as GLink)
+                ? 2.5
+                : 1
             }
-            linkWidth={(l) => (hlLinks.has(l as GLink) ? 2.5 : 1)}
             linkCurvature={settings.curvedLinks ? 0.25 : 0}
             linkDirectionalArrowLength={settings.showArrows ? 3.5 : 0}
             linkDirectionalArrowRelPos={1}
@@ -304,8 +408,49 @@ export function GraphView({ bookId, sessionId }: Props) {
       {qaOpen && <QAChat bookId={bookId} sessionId={sessionId} />}
 
       <GraphSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <GraphFilters
+        open={filtersOpen}
+        onOpenChange={setFiltersOpen}
+        entityTypes={legendTypes}
+        relationTypes={Object.values(relationTypes).filter((rt) =>
+          present.rels.has(rt.type_name),
+        )}
+        chapters={[...present.chapters]
+          .map((id) => ({ id, title: chapterTitles[id] ?? "Глава" }))
+          .sort((a, b) => a.title.localeCompare(b.title))}
+        activeEntityTypes={
+          new Set([...present.types].filter((t) => !hiddenTypes.has(t)))
+        }
+        activeRelationTypes={
+          new Set([...present.rels].filter((t) => !hiddenRelations.has(t)))
+        }
+        activeChapters={
+          new Set([...present.chapters].filter((c) => !hiddenChapters.has(c)))
+        }
+        toggleEntityType={(t) => setHiddenTypes((s) => toggleSet(s, t))}
+        toggleRelationType={(t) => setHiddenRelations((s) => toggleSet(s, t))}
+        toggleChapter={(id) => setHiddenChapters((s) => toggleSet(s, id))}
+        reset={() => {
+          setHiddenTypes(new Set());
+          setHiddenRelations(new Set());
+          setHiddenChapters(new Set());
+        }}
+      />
     </div>
   );
+}
+
+function toggleSet(set: Set<string>, value: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+function linkKey(l: GLink): string {
+  const s = typeof l.source === "string" ? l.source : l.source.id;
+  const t = typeof l.target === "string" ? l.target : l.target.id;
+  return `${s}->${t}:${l.relation_type}`;
 }
 
 function roundRect(

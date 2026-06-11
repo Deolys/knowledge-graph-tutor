@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, func, text
+from sqlalchemy import DateTime, ForeignKey, String, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,6 +19,12 @@ class Book(Base):
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
     filename: Mapped[str] = mapped_column(String, nullable=False)
+    # активный профиль онтологии (подмножество классов для извлечения)
+    profile: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("profiles.profile_name"),
+        server_default=text("'universal'"),
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

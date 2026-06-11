@@ -181,8 +181,8 @@ function GraphCard({ book }: { book: BookListItem }) {
 
         <p className="text-xs text-muted-foreground">
           {formatDate(book.created_at)}
-          {ready && book.concepts_count > 0 && (
-            <> · {book.concepts_count} понятий</>
+          {ready && book.entities_count > 0 && (
+            <> · {book.entities_count} сущностей</>
           )}
         </p>
 

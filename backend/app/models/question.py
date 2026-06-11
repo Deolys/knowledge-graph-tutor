@@ -1,4 +1,4 @@
-"""Модель вопроса для тестирования."""
+"""Модель вопроса для тестирования (привязан к сущности)."""
 import uuid
 
 from sqlalchemy import ForeignKey, Integer, String, Text
@@ -19,8 +19,9 @@ class Question(Base):
         primary_key=True,
         server_default=sa_text("gen_random_uuid()"),
     )
-    concept_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("concepts.id"), nullable=False
+    entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.id", ondelete="CASCADE"),
+        nullable=False,
     )
     text: Mapped[str] = mapped_column(Text, nullable=False)
     options: Mapped[list[str]] = mapped_column(JSONB, nullable=False)

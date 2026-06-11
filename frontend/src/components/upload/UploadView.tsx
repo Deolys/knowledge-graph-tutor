@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Upload } from "lucide-react";
 import { uploadBook } from "../../api/books";
+import { useOntology } from "../../hooks/useOntology";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ProcessingStatus } from "./ProcessingStatus";
@@ -10,8 +11,18 @@ interface Props {
   onReady: (bookId: string) => void;
 }
 
+const PROFILE_LABELS: Record<string, string> = {
+  universal: "Универсальный",
+  math: "Математика",
+  cs: "Информатика",
+  history: "История",
+  economics: "Экономика",
+};
+
 export function UploadView({ onReady }: Props) {
+  const { ontology } = useOntology();
   const [bookId, setBookId] = useState<string | null>(null);
+  const [profile, setProfile] = useState("universal");
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +32,7 @@ export function UploadView({ onReady }: Props) {
     setError(null);
     setUploading(true);
     try {
-      const book = await uploadBook(file);
+      const book = await uploadBook(file, profile);
       setBookId(book.id);
     } catch {
       setError("Не удалось загрузить файл. Попробуйте ещё раз.");
@@ -41,6 +52,8 @@ export function UploadView({ onReady }: Props) {
     return <ProcessingStatus bookId={bookId} onReady={() => onReady(bookId)} />;
   }
 
+  const profiles = ontology?.profiles ?? [];
+
   return (
     <div className="flex flex-1 items-center justify-center p-6">
       <div className="w-full max-w-lg space-y-6">
@@ -48,6 +61,35 @@ export function UploadView({ onReady }: Props) {
           <h1 className="text-3xl font-bold tracking-tight">Knowledge Graph Tutor</h1>
           <p className="text-muted-foreground">Загрузите PDF-учебник для построения графа знаний</p>
         </div>
+
+        {profiles.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Профиль дисциплины</p>
+            <div className="flex flex-wrap gap-2">
+              {profiles.map((p) => {
+                const active = profile === p.profile_name;
+                return (
+                  <button
+                    key={p.profile_name}
+                    type="button"
+                    onClick={() => setProfile(p.profile_name)}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+                      active
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border text-muted-foreground hover:bg-muted hover:text-foreground",
+                    )}
+                  >
+                    {PROFILE_LABELS[p.profile_name] ?? p.profile_name}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Определяет, какие типы сущностей извлекаются из учебника.
+            </p>
+          </div>
+        )}
 
         <Card
           onDrop={onDrop}

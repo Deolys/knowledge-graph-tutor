@@ -5,15 +5,15 @@ from pydantic import BaseModel
 
 
 class TestSubmit(BaseModel):
-    """Ответы на тест по понятию."""
+    """Ответы на тест по сущности."""
     session_id: str
-    concept_id: uuid.UUID
+    entity_id: uuid.UUID
     # answers[question_id] = выбранный индекс варианта
     answers: dict[uuid.UUID, int]
 
 
 class TestResult(BaseModel):
-    concept_id: uuid.UUID
+    entity_id: uuid.UUID
     score: float
     status: str
     # узлы, разблокированные каскадом после прохождения
@@ -21,7 +21,7 @@ class TestResult(BaseModel):
 
 
 class ProgressOut(BaseModel):
-    concept_id: uuid.UUID
+    entity_id: uuid.UUID
     status: str
     score: float | None = None
     attempts: int

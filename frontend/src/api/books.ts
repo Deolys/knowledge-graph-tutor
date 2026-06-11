@@ -6,9 +6,13 @@ export async function listBooks(): Promise<BookListItem[]> {
   return data;
 }
 
-export async function uploadBook(file: File): Promise<Book> {
+export async function uploadBook(
+  file: File,
+  profile: string,
+): Promise<Book> {
   const form = new FormData();
   form.append("file", file);
+  form.append("profile", profile);
   const { data } = await client.post<Book>("/api/books/upload", form);
   return data;
 }

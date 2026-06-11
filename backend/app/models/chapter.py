@@ -19,7 +19,8 @@ class Chapter(Base):
         server_default=text("gen_random_uuid()"),
     )
     book_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("books.id"), nullable=False
+        UUID(as_uuid=True), ForeignKey("books.id", ondelete="CASCADE"),
+        nullable=False,
     )
     title: Mapped[str] = mapped_column(String, nullable=False)
     order_num: Mapped[int] = mapped_column(Integer, nullable=False)

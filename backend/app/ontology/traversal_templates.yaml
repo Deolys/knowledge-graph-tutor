@@ -1,0 +1,33 @@
+definition:
+  match_types: [concept, theorem, tool]
+  expand:
+    - {relation: PART_OF,      direction: out, depth: 1}
+    - {relation: GENERALIZES,  direction: in,  depth: 1}
+    - {relation: ILLUSTRATES,  direction: in,  depth: 1}
+    - {relation: EXPRESSED_BY, direction: out, depth: 1}
+
+how_it_works:
+  match_types: [method, tool, process]
+  expand:
+    - {relation: HAS_STEP,     direction: out, depth: 2}
+    - {relation: USES,         direction: out, depth: 1}
+    - {relation: EXPRESSED_BY, direction: out, depth: 1}
+    - {relation: ILLUSTRATES,  direction: in,  depth: 1}
+
+comparison:
+  match_types: [concept, method]
+  expand:
+    - {relation: CONTRASTS_WITH, direction: both, depth: 1}
+    - {relation: PART_OF,        direction: out,  depth: 1}
+
+prerequisites:
+  match_types: [concept, method, theorem]
+  expand:
+    - {relation: REQUIRES, direction: out, depth: 3}
+
+history_causal:
+  match_types: [event, process]
+  expand:
+    - {relation: CAUSED,          direction: in,  depth: 2}
+    - {relation: PARTICIPATED_IN, direction: in,  depth: 1}
+    - {relation: OCCURRED_IN,     direction: out, depth: 1}

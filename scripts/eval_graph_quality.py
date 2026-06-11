@@ -1,16 +1,20 @@
-"""Оценка качества графа: precision/recall/F1 против эталона.
+"""Оценка качества графа: precision/recall/F1 против эталона, по типам.
 
-Эталон — JSON со списком имён понятий (и опционально связей), составленный
-вручную по одной главе. Скрипт сверяет извлечённые понятия книги из БД
-с эталоном по нормализованным именам.
+Метрики считаются отдельно по типам сущностей и по типам отношений
+(knowledge_graph_analytics.md §10). Эталон — ручная разметка одной главы.
 
 Использование:
     python scripts/eval_graph_quality.py <book_id> path/to/gold.json
 
 Формат gold.json:
     {
-      "concepts": ["Предел", "Производная", ...],
-      "relations": [["Производная", "Предел", "depends_on"], ...]   # опционально
+      "entities": [
+        {"name": "Предел", "entity_type": "concept"},
+        {"name": "Теорема Вейерштрасса", "entity_type": "theorem"}
+      ],
+      "relations": [
+        ["Производная", "Предел", "REQUIRES"]
+      ]
     }
 """
 import asyncio
@@ -23,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 from sqlalchemy import select  # noqa: E402
 
 from app.database import async_session_maker  # noqa: E402
-from app.models import Concept, Relation  # noqa: E402
+from app.models import Entity, Relation  # noqa: E402
 
 
 def _norm(s: str) -> str:
@@ -41,55 +45,67 @@ def _prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
     return precision, recall, f1
 
 
+def _report(title: str, gold: set, pred: set) -> None:
+    tp = len(pred & gold)
+    fp = len(pred - gold)
+    fn = len(gold - pred)
+    p, r, f1 = _prf(tp, fp, fn)
+    print(f"{title}: TP={tp} FP={fp} FN={fn} | P={p:.3f} R={r:.3f} F1={f1:.3f}")
+
+
 async def evaluate(book_id: str, gold_path: str) -> None:
     with open(gold_path, encoding="utf-8") as f:
         gold = json.load(f)
 
-    gold_concepts = {_norm(c) for c in gold.get("concepts", [])}
+    gold_entities = {
+        (_norm(e["name"]), e["entity_type"]) for e in gold.get("entities", [])
+    }
 
     async with async_session_maker() as session:
-        concepts = (
+        entities = (
             await session.execute(
-                select(Concept).where(Concept.book_id == book_id)
+                select(Entity).where(Entity.book_id == book_id)
             )
         ).scalars().all()
-        pred_concepts = {_norm(c.name) for c in concepts}
-        id_to_name = {c.id: _norm(c.name) for c in concepts}
+        pred_entities = {(_norm(e.name), e.entity_type) for e in entities}
+        id_to_name = {e.id: _norm(e.name) for e in entities}
 
         relations = (
             await session.execute(
-                select(Relation).where(
-                    Relation.from_id.in_(list(id_to_name)),
-                )
+                select(Relation).where(Relation.book_id == book_id)
             )
         ).scalars().all()
 
-    # Понятия
-    tp = len(pred_concepts & gold_concepts)
-    fp = len(pred_concepts - gold_concepts)
-    fn = len(gold_concepts - pred_concepts)
-    p, r, f1 = _prf(tp, fp, fn)
-    print("=== Понятия ===")
-    print(f"TP={tp} FP={fp} FN={fn}")
-    print(f"Precision={p:.3f} Recall={r:.3f} F1={f1:.3f}")
+    print("=== Сущности (overall) ===")
+    _report("ВСЕ", gold_entities, pred_entities)
 
-    # Связи (если есть эталон)
+    print("\n=== Сущности по типам ===")
+    types = {t for _, t in gold_entities} | {t for _, t in pred_entities}
+    for t in sorted(types):
+        g = {n for n, tt in gold_entities if tt == t}
+        p = {n for n, tt in pred_entities if tt == t}
+        if g or p:
+            _report(t, g, p)
+
     gold_rel = {
         (_norm(a), _norm(b), t) for a, b, t in gold.get("relations", [])
     }
     if gold_rel:
         pred_rel = {
-            (id_to_name[rel.from_id], id_to_name[rel.to_id], rel.type)
-            for rel in relations
-            if rel.from_id in id_to_name and rel.to_id in id_to_name
+            (id_to_name[r.from_id], id_to_name[r.to_id], r.relation_type)
+            for r in relations
+            if r.from_id in id_to_name and r.to_id in id_to_name
         }
-        rtp = len(pred_rel & gold_rel)
-        rfp = len(pred_rel - gold_rel)
-        rfn = len(gold_rel - pred_rel)
-        rp, rr, rf1 = _prf(rtp, rfp, rfn)
-        print("\n=== Связи ===")
-        print(f"TP={rtp} FP={rfp} FN={rfn}")
-        print(f"Precision={rp:.3f} Recall={rr:.3f} F1={rf1:.3f}")
+        print("\n=== Отношения (overall) ===")
+        _report("ВСЕ", gold_rel, pred_rel)
+
+        print("\n=== Отношения по типам ===")
+        rtypes = {t for _, _, t in gold_rel} | {t for _, _, t in pred_rel}
+        for t in sorted(rtypes):
+            g = {(a, b) for a, b, tt in gold_rel if tt == t}
+            p = {(a, b) for a, b, tt in pred_rel if tt == t}
+            if g or p:
+                _report(t, g, p)
 
 
 if __name__ == "__main__":

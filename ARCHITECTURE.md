@@ -1,139 +1,106 @@
+# Архитектура (v2 — ontology-driven)
+
+> Онтология — единственный источник правды о типах сущностей и отношений
+> (`backend/app/ontology/ontology.yaml`). Промпты, валидация и обход графа
+> читают её; добавление класса = строка в YAML + `scripts/sync_ontology.py`.
+
 ```
 knowledge-graph-tutor/
 │
 ├── docker-compose.yml
-├── docker-compose.dev.yml
 ├── .env.example
-├── .gitignore
 ├── README.md
+├── CLAUDE.md
+├── knowledge_graph_analytics.md       # спецификация v2
 │
 ├── backend/
 │   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── alembic.ini
-│   │
+│   ├── requirements.txt               # httpx (LLM), pyyaml, pgvector, …
+│   ├── CONTEXT.md                     # детальный контекст backend
 │   ├── alembic/
-│   │   ├── env.py
-│   │   └── versions/
-│   │       └── 001_initial.py
+│   │   └── versions/001_initial.py    # схема v2 (онтология + типизированный граф)
 │   │
 │   └── app/
-│       ├── main.py                  # FastAPI app, CORS, routers
-│       ├── config.py                # pydantic-settings, все env vars
-│       ├── database.py              # async engine, session factory
-│       ├── prompts.py               # ВСЕ LLM промпты в одном месте
+│       ├── main.py                    # FastAPI app, роутеры
+│       ├── config.py                  # pydantic-settings (LLM_*, GraphRAG, пороги)
+│       ├── database.py                # async engine, session factory
+│       ├── prompts.py                 # СТАТИЧЕСКИЕ промпты (классификация, QA, тесты)
 │       │
-│       ├── models/                  # SQLAlchemy ORM модели
-│       │   ├── __init__.py
-│       │   ├── book.py
+│       ├── ontology/
+│       │   ├── ontology.yaml          # типы сущностей/отношений, профили
+│       │   ├── traversal_templates.yaml  # шаблоны обхода для GraphRAG
+│       │   └── loader.py              # Pydantic Ontology/Profile/Relation (lru_cache)
+│       │
+│       ├── models/
+│       │   ├── ontology.py            # EntityTypeRow, RelationTypeRow, ProfileRow
+│       │   ├── book.py                # + profile (FK)
 │       │   ├── chapter.py
-│       │   ├── concept.py
-│       │   ├── relation.py
-│       │   ├── question.py
-│       │   └── progress.py
+│       │   ├── entity.py              # типизированный узел (entity_type, attrs, embedding)
+│       │   ├── relation.py            # типизированное ребро (relation_type, source_quote)
+│       │   ├── question.py            # entity_id
+│       │   └── progress.py            # entity_id, status (+locked)
 │       │
-│       ├── schemas/                 # Pydantic схемы (request/response)
-│       │   ├── __init__.py
-│       │   ├── book.py
-│       │   ├── concept.py
-│       │   ├── question.py
-│       │   └── progress.py
-│       │
-│       ├── api/                     # FastAPI роутеры
-│       │   ├── __init__.py
-│       │   ├── books.py             # upload, status, graph
-│       │   ├── concepts.py          # concept detail, questions
-│       │   ├── progress.py          # update + get progress
-│       │   └── qa.py                # QA endpoint
-│       │
-│       └── services/
-│           ├── llm.py               # AI API клиент, retry, JSON parsing
-│           ├── embeddings.py        # sentence-transformers, encode/search
-│           ├── qa_service.py        # vector search + context + LLM answer
-│           ├── test_service.py      # генерация вопросов, проверка теста
-│           ├── progress_service.py  # каскадная логика "усвоен"
-│           │
-│           └── ingestion/
-│               ├── __init__.py
-│               ├── pipeline.py      # оркестратор: запускает все шаги
-│               ├── pdf_parser.py    # pymupdf4llm, split by headings
-│               ├── extractor.py     # вызовы LLM: понятия + связи
-│               ├── validator.py     # валидация, confidence filter
-│               └── merger.py        # merge дублей через эмбеддинги
-│
-├── frontend/
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   ├── index.html
-│   │
-│   └── src/
-│       ├── main.tsx
-│       ├── App.tsx
-│       │
-│       ├── types/
-│       │   └── index.ts             # все TypeScript типы
+│       ├── schemas/
+│       │   ├── ontology.py            # OntologyOut, ProfileOut
+│       │   ├── book.py                # BookOut(+profile), типизированный граф
+│       │   ├── entity.py              # EntityOut (attrs), QuestionOut
+│       │   ├── progress.py            # TestSubmit/Result/ProgressOut (entity_id)
+│       │   └── qa.py                  # QAResponse (+traversal, mode)
 │       │
 │       ├── api/
-│       │   ├── client.ts            # axios instance, base URL
-│       │   ├── books.ts
-│       │   ├── concepts.ts
-│       │   ├── progress.ts
-│       │   └── qa.ts
+│       │   ├── ontology.py            # GET /api/ontology(/profiles)
+│       │   ├── books.py               # upload(+profile), list, status, graph
+│       │   ├── entities.py            # GET /{id}, /{id}/questions
+│       │   ├── progress.py            # POST /, GET /{session_id}
+│       │   └── qa.py                  # POST /
 │       │
-│       ├── hooks/
-│       │   ├── useGraph.ts          # загрузка и стейт графа
-│       │   ├── useProgress.ts       # прогресс, обновление статусов
-│       │   ├── useTest.ts           # логика теста, score, cascade
-│       │   └── useSession.ts        # session_id в localStorage
-│       │
-│       ├── store/                   # Zustand стейт
-│       │   ├── graphStore.ts
-│       │   └── progressStore.ts
-│       │
-│       └── components/
-│           │
-│           ├── layout/
-│           │   ├── Layout.tsx
-│           │   └── Sidebar.tsx
-│           │
-│           ├── upload/
-│           │   ├── UploadView.tsx   # drag-and-drop загрузка PDF
-│           │   └── ProcessingStatus.tsx  # прогресс ingestion по главам
-│           │
-│           ├── graph/
-│           │   ├── GraphView.tsx    # react-force-graph-2d, основной экран
-│           │   ├── NodePanel.tsx    # боковая панель: определение + кнопки
-│           │   ├── GraphLegend.tsx  # цвета статусов
-│           │   ├── ChapterFilter.tsx
-│           │   └── GraphControls.tsx  # zoom, reset, фильтры
-│           │
-│           ├── test/
-│           │   ├── TestView.tsx     # экран теста
-│           │   ├── QuestionCard.tsx # один вопрос + варианты
-│           │   ├── TestResult.tsx   # итог теста + анимация unlock
-│           │   └── ProgressBar.tsx
-│           │
-│           └── qa/
-│               ├── QAChat.tsx       # чат-интерфейс
-│               ├── MessageBubble.tsx
-│               └── SourceList.tsx   # источники из графа
+│       └── services/
+│           ├── llm.py                 # httpx OpenAI-compatible, retry, JSON-парсер
+│           ├── embeddings.py          # sentence-transformers
+│           ├── graphrag.py            # классификация → linking → обход → контекст
+│           ├── qa_service.py          # обёртка над graphrag
+│           ├── test_service.py        # генерация MCQ по сущности
+│           ├── progress_service.py    # каскад learned по транзитивному REQUIRES
+│           └── ingestion/
+│               ├── pipeline.py        # единая точка входа; читает profile книги
+│               ├── pdf_parser.py
+│               ├── prompt_builder.py  # промпты извлечения ИЗ онтологии
+│               ├── extractor.py       # 2 LLM-вызова (сущности, отношения)
+│               ├── validator.py       # онтологическая валидация + quote_in_text
+│               └── merger.py          # merge только внутри одного entity_type
 │
-├── shared/                          # общие типы если нужна синхронизация
-│   └── types.ts                     # (опционально, для monorepo tooling)
+├── frontend/                          # React 19 + TS + Vite + Tailwind + shadcn
+│   └── src/
+│       ├── types/index.ts             # Ontology, Entity, типизированный Graph, QA
+│       ├── api/                       # ontology, books, entities, progress, qa
+│       ├── store/                     # ontologyStore, graphStore, progressStore, …
+│       ├── hooks/                     # useOntology, useGraph, useProgress, useTest
+│       └── components/
+│           ├── graph/                 # GraphView (цвета/легенда/фильтры/кольца),
+│           │                          # GraphFilters, NodePanel (+KaTeX)
+│           ├── qa/QAChat.tsx          # GraphRAG-чат, подсветка traversal, KaTeX
+│           ├── test/TestView.tsx
+│           └── upload/UploadView.tsx  # выбор профиля + загрузка
 │
 └── scripts/
-    ├── seed_test_book.py            # загрузить тестовый учебник в БД
-    └── eval_graph_quality.py        # скрипт для измерения precision/recall
+    ├── sync_ontology.py               # YAML → таблицы онтологии
+    ├── seed_test_book.py              # загрузка книги (с профилем)
+    └── eval_graph_quality.py          # precision/recall/F1 по типам
 ```
 
----
+## Порядок первого запуска
 
-Три вещи на которые обрати внимание:
+```bash
+alembic upgrade head            # схема (включая пустые таблицы онтологии)
+python scripts/sync_ontology.py # YAML → БД (ДО ingestion: entities FK → entity_types)
+```
 
-**`prompts.py` в одном файле** — все системные промпты централизованы, легко итерировать без поиска по кодовой базе.
+## Ключевые потоки
 
-**`scripts/`** — два скрипта которые нужны для экспериментального раздела диссертации: seed для загрузки тестового учебника и eval для измерения качества графа.
-
-**`services/ingestion/pipeline.py`** — единая точка входа для всего пайплайна. Роутер вызывает только его, не отдельные шаги. Так проще заменить или переставить шаги не трогая API.
+- **Ingestion:** PDF → главы → типизированное извлечение (промпт из профиля) →
+  онтологическая валидация (+ проверка цитат) → merge внутри типа → запись.
+- **GraphRAG:** вопрос → классификация → entity linking → BFS по шаблону
+  (ранжирование `traversal_weight × confidence`) → контекст → LLM-ответ +
+  `traversal_path`. Fallback на векторный поиск при низкой привязке.
+- **Прогресс:** узел `learned` ⇔ `score ≥ порог` И все `REQUIRES`-пререквизиты
+  усвоены; каскадная разблокировка зависимых.

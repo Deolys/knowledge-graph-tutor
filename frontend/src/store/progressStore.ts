@@ -1,28 +1,28 @@
 import { create } from "zustand";
-import type { ConceptStatus, ProgressEntry } from "../types";
+import type { EntityStatus, ProgressEntry } from "../types";
 import { getProgress } from "../api/progress";
 
 interface ProgressState {
-  byConcept: Record<string, ProgressEntry>;
+  byEntity: Record<string, ProgressEntry>;
   load: (sessionId: string) => Promise<void>;
-  setStatus: (conceptId: string, status: ConceptStatus) => void;
+  setStatus: (entityId: string, status: EntityStatus) => void;
 }
 
 export const useProgressStore = create<ProgressState>((set) => ({
-  byConcept: {},
+  byEntity: {},
   load: async (sessionId) => {
     const entries = await getProgress(sessionId);
-    const byConcept: Record<string, ProgressEntry> = {};
-    for (const e of entries) byConcept[e.concept_id] = e;
-    set({ byConcept });
+    const byEntity: Record<string, ProgressEntry> = {};
+    for (const e of entries) byEntity[e.entity_id] = e;
+    set({ byEntity });
   },
-  setStatus: (conceptId, status) =>
+  setStatus: (entityId, status) =>
     set((s) => ({
-      byConcept: {
-        ...s.byConcept,
-        [conceptId]: {
-          ...(s.byConcept[conceptId] ?? {
-            concept_id: conceptId,
+      byEntity: {
+        ...s.byEntity,
+        [entityId]: {
+          ...(s.byEntity[entityId] ?? {
+            entity_id: entityId,
             score: null,
             attempts: 0,
           }),

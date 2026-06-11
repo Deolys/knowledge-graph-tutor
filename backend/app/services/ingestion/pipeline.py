@@ -1,27 +1,29 @@
 """Оркестратор ingestion — единая точка входа для всего пайплайна.
 
-API-роутеры вызывают только run_ingestion(), а не отдельные шаги. Это
-позволяет менять/переставлять шаги, не трогая API.
-
-Поток: parse PDF -> сохранить главы -> по каждой главе извлечь понятия+связи
--> валидация -> merge между главами -> запись узлов и рёбер в БД.
+API-роутеры вызывают только run_ingestion(). Поток (онтологически управляемый):
+parse PDF → главы → по каждой главе типизированное извлечение сущностей и
+отношений (промпты из активного профиля) → онтологическая валидация →
+merge внутри типа → запись типизированных узлов и рёбер.
 """
 import uuid
 
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Chapter, Concept, Relation
+from app.models import Book, Chapter, Entity, Relation
+from app.ontology import load_ontology
 from app.services.ingestion import extractor, merger, pdf_parser, validator
 
 
 async def run_ingestion(
     session: AsyncSession, book_id: uuid.UUID, pdf_path: str
 ) -> None:
-    """Полный прогон пайплайна для одной книги."""
+    """Полный прогон пайплайна для одной книги (по её профилю онтологии)."""
+    book = await session.get(Book, book_id)
+    profile = load_ontology().profile(book.profile if book else "universal")
+
     raw_chapters = pdf_parser.extract_chapters(pdf_path)
 
-    # Сохраняем главы (status=pending)
     chapter_rows: list[Chapter] = []
     for ch in raw_chapters:
         row = Chapter(
@@ -33,72 +35,87 @@ async def run_ingestion(
         )
         session.add(row)
         chapter_rows.append(row)
-    await session.flush()  # получить id глав
+    await session.flush()
 
-    # Аккумулируем понятия и связи со всех глав
-    # каждый concept помечаем chapter_id, чтобы потом записать узлы
-    all_concepts: list[dict] = []
+    all_entities: list[dict] = []
     all_relations: list[dict] = []
 
     for ch_row, ch in zip(chapter_rows, raw_chapters):
         await _set_status(session, ch_row.id, "processing")
         try:
-            concepts = validator.validate_concepts(
-                await extractor.extract_concepts(ch["title"], ch["raw_text"])
+            entities = validator.validate_entities(
+                await extractor.extract_entities(
+                    profile, ch["title"], ch["raw_text"]
+                ),
+                profile,
+                ch["raw_text"],
             )
             relations = validator.validate_relations(
-                concepts,
-                await extractor.extract_relations(concepts, ch["raw_text"]),
+                entities,
+                await extractor.extract_relations(
+                    profile, entities, ch["raw_text"]
+                ),
+                profile,
+                ch["raw_text"],
             )
-            for c in concepts:
-                c["chapter_id"] = ch_row.id
-            all_concepts.extend(concepts)
+            for e in entities:
+                e["chapter_id"] = ch_row.id
+            all_entities.extend(entities)
             all_relations.extend(relations)
             await _set_status(session, ch_row.id, "done")
         except Exception:
             await _set_status(session, ch_row.id, "error")
             raise
 
-    # Merge между главами
-    canonical, name_map = merger.merge_concepts(all_concepts)
+    # Merge между главами — строго внутри типа.
+    canonical, name_map = merger.merge_entities(all_entities)
 
-    # Запись канонических узлов; name(lower) -> Concept.id
-    concept_ids: dict[str, uuid.UUID] = {}
-    for c in canonical:
-        row = Concept(
+    # Запись канонических узлов; name(lower) -> (Entity.id, chapter_id).
+    entity_ids: dict[str, uuid.UUID] = {}
+    chapter_by_name: dict[str, uuid.UUID | None] = {}
+    for e in canonical:
+        row = Entity(
             book_id=book_id,
-            chapter_id=c["chapter_id"],
-            name=c["name"],
-            definition=c["definition"],
-            formula=c.get("formula"),
-            quote=c.get("quote"),
-            embedding=c["embedding"],
+            chapter_id=e.get("chapter_id"),
+            entity_type=e["entity_type"],
+            name=e["name"],
+            attrs=e.get("attrs") or {},
+            source_quote=e.get("source_quote"),
+            embedding=e["embedding"],
         )
         session.add(row)
         await session.flush()
-        concept_ids[c["name"].lower()] = row.id
+        entity_ids[e["name"].lower()] = row.id
+        chapter_by_name[e["name"].lower()] = e.get("chapter_id")
 
-    # Запись рёбер: имена переводим в канонические, затем в id
+    # Запись рёбер: имена → канонические имена → id.
     seen: set[tuple[uuid.UUID, uuid.UUID, str]] = set()
     for r in all_relations:
         frm_name = name_map.get(r["from"].lower())
         to_name = name_map.get(r["to"].lower())
         if not frm_name or not to_name:
             continue
-        from_id = concept_ids.get(frm_name.lower())
-        to_id = concept_ids.get(to_name.lower())
+        from_id = entity_ids.get(frm_name.lower())
+        to_id = entity_ids.get(to_name.lower())
         if not from_id or not to_id or from_id == to_id:
             continue
-        key = (from_id, to_id, r["type"])
+        key = (from_id, to_id, r["relation_type"])
         if key in seen:
             continue
         seen.add(key)
+        from_ch = chapter_by_name.get(frm_name.lower())
+        to_ch = chapter_by_name.get(to_name.lower())
         session.add(
             Relation(
+                book_id=book_id,
                 from_id=from_id,
                 to_id=to_id,
-                type=r["type"],
+                relation_type=r["relation_type"],
                 confidence=r["confidence"],
+                source_quote=r["source_quote"],
+                is_cross_chapter=bool(
+                    from_ch and to_ch and from_ch != to_ch
+                ),
             )
         )
 

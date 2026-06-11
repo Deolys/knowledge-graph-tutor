@@ -8,18 +8,18 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 
 interface Props {
-  conceptId: string;
+  entityId: string;
   sessionId: string;
   onDone: () => void;
 }
 
-export function TestView({ conceptId, sessionId, onDone }: Props) {
-  const { questions, loading, answers, result, answer, submit } = useTest(conceptId, sessionId);
+export function TestView({ entityId, sessionId, onDone }: Props) {
+  const { questions, loading, answers, result, answer, submit } = useTest(entityId, sessionId);
   const setStatus = useProgressStore((s) => s.setStatus);
 
   useEffect(() => {
     if (!result) return;
-    setStatus(result.concept_id, result.status);
+    setStatus(result.entity_id, result.status);
     for (const id of result.unlocked) setStatus(id, "learned");
   }, [result, setStatus]);
 

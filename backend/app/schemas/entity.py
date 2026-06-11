@@ -1,16 +1,17 @@
-"""Схемы понятий и вопросов теста."""
+"""Схемы сущностей и вопросов теста."""
 import uuid
+from typing import Any
 
 from pydantic import BaseModel
 
 
-class ConceptOut(BaseModel):
+class EntityOut(BaseModel):
     id: uuid.UUID
+    entity_type: str
     name: str
-    definition: str
-    formula: str | None = None
-    quote: str | None = None
-    chapter_id: uuid.UUID
+    attrs: dict[str, Any]
+    source_quote: str | None = None
+    chapter_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 

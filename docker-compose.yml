@@ -20,11 +20,15 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@postgres:5432/kgtutor
       GEMINI_API_KEY: ${GEMINI_API_KEY}
-      MODEL: ${MODEL}
+      LLM_MODEL: ${LLM_MODEL:-gemini-2.0-flash}
+      LLM_CLASSIFIER_MODEL: ${LLM_CLASSIFIER_MODEL:-gemini-2.0-flash}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai/}
+      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
       CONFIDENCE_THRESHOLD: ${CONFIDENCE_THRESHOLD:-0.7}
       MERGE_THRESHOLD: ${MERGE_THRESHOLD:-0.85}
-      EMBEDDINGS_MODEL: ${EMBEDDINGS_MODEL:-paraphrase-multilingual-MiniLM-L12-v2}
       MAX_CHAPTER_TOKENS: ${MAX_CHAPTER_TOKENS:-4000}
+      GRAPHRAG_MAX_ENTITIES: ${GRAPHRAG_MAX_ENTITIES:-15}
+      ENTITY_LINK_THRESHOLD: ${ENTITY_LINK_THRESHOLD:-0.6}
       QUESTIONS_PER_CONCEPT: ${QUESTIONS_PER_CONCEPT:-3}
       LEARNED_SCORE_THRESHOLD: ${LEARNED_SCORE_THRESHOLD:-0.7}
       # Прокси для доступа к Gemini API (хостовый прокси через host.docker.internal).

@@ -1,7 +1,8 @@
-"""Gemini API клиент (google-genai): генерация, retry, парсинг JSON.
+"""LLM-клиент: httpx → OpenAI-совместимый endpoint (без SDK).
 
-Единая точка вызова LLM. Промпты сюда передаются извне (из app.prompts),
-здесь — только транспорт, повторные попытки и разбор ответа.
+Единая точка вызова LLM. Промпты передаются извне (app.prompts / prompt_builder),
+здесь — только транспорт, повторные попытки и разбор ответа. Сейчас за endpoint
+стоит Gemini (OpenAI-compatible), позже можно подменить на Anthropic.
 """
 import json
 import logging
@@ -9,9 +10,7 @@ import re
 from functools import lru_cache
 from typing import Any
 
-from google import genai
-from google.genai import errors as genai_errors
-from google.genai import types
+import httpx
 from tenacity import (
     before_sleep_log,
     retry,
@@ -24,13 +23,6 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-
-@lru_cache(maxsize=1)
-def _get_client() -> genai.Client:
-    """Ленивая инициализация клиента — не падаем на импорте без ключа."""
-    return genai.Client(api_key=settings.gemini_api_key)
-
-
 # Снимает обёртку ```json ... ``` если модель её добавила
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
@@ -39,51 +31,84 @@ class LLMError(Exception):
     """Ошибка вызова LLM или разбора ответа."""
 
 
+class RetryableLLMError(LLMError):
+    """Временная ошибка (5xx / 429 / сеть) — имеет смысл повторить."""
+
+
+@lru_cache(maxsize=1)
+def _client() -> httpx.AsyncClient:
+    """Ленивый httpx-клиент с авторизацией Bearer и базовым URL."""
+    return httpx.AsyncClient(
+        base_url=settings.llm_base_url.rstrip("/"),
+        headers={"Authorization": f"Bearer {settings.gemini_api_key}"},
+        timeout=httpx.Timeout(120.0),
+    )
+
+
 def _strip_fences(text: str) -> str:
     text = text.strip()
     text = _FENCE_RE.sub("", text)
     return text.strip()
 
 
-def _is_retryable(exc: BaseException) -> bool:
-    """503 (перегрузка) и 429 (rate limit) — ретраим. Остальное — нет."""
-    if isinstance(exc, genai_errors.ServerError):
-        return True
-    if isinstance(exc, genai_errors.ClientError) and "429" in str(exc):
-        return True
-    return False
-
-
 @retry(
-    retry=retry_if_exception_type(genai_errors.ServerError),
+    retry=retry_if_exception_type(RetryableLLMError),
     stop=stop_after_attempt(6),
     wait=wait_exponential(multiplier=2, min=5, max=60),
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
-async def _generate(system: str, user: str, json_mode: bool) -> str:
-    config = types.GenerateContentConfig(
-        system_instruction=system,
-        response_mime_type="application/json" if json_mode else "text/plain",
-    )
-    response = await _get_client().aio.models.generate_content(
-        model=settings.model,
-        contents=user,
-        config=config,
-    )
-    if not response.text:
+async def _chat(
+    system: str, user: str, *, model: str, json_mode: bool
+) -> str:
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+    }
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+
+    try:
+        resp = await _client().post("/chat/completions", json=payload)
+    except httpx.HTTPError as exc:
+        raise RetryableLLMError(f"Сетевая ошибка LLM: {exc}") from exc
+
+    if resp.status_code >= 500 or resp.status_code == 429:
+        raise RetryableLLMError(
+            f"LLM {resp.status_code}: {resp.text[:300]}"
+        )
+    if resp.status_code >= 400:
+        raise LLMError(f"LLM {resp.status_code}: {resp.text[:300]}")
+
+    data = resp.json()
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError) as exc:
+        raise LLMError(f"Неожиданный формат ответа LLM: {data}") from exc
+    if not content:
         raise LLMError("Пустой ответ от LLM")
-    return response.text
+    return content
 
 
-async def generate_text(system: str, user: str) -> str:
+async def generate_text(
+    system: str, user: str, *, model: str | None = None
+) -> str:
     """Свободный текстовый ответ (используется в QA)."""
-    return await _generate(system, user, json_mode=False)
+    return await _chat(
+        system, user, model=model or settings.llm_model, json_mode=False
+    )
 
 
-async def generate_json(system: str, user: str) -> dict[str, Any]:
+async def generate_json(
+    system: str, user: str, *, model: str | None = None
+) -> dict[str, Any]:
     """JSON-ответ с разбором. Бросает LLMError при невалидном JSON."""
-    raw = await _generate(system, user, json_mode=True)
+    raw = await _chat(
+        system, user, model=model or settings.llm_model, json_mode=True
+    )
     try:
         return json.loads(_strip_fences(raw))
     except json.JSONDecodeError as exc:

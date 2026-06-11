@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Question, TestResult } from "../types";
-import { getQuestions } from "../api/concepts";
+import { getQuestions } from "../api/entities";
 import { submitTest } from "../api/progress";
 
 interface UseTest {
@@ -12,8 +12,7 @@ interface UseTest {
   submit: () => Promise<TestResult>;
 }
 
-/** Логика теста по понятию: загрузка вопросов, ответы, отправка. */
-export function useTest(conceptId: string, sessionId: string): UseTest {
+export function useTest(entityId: string, sessionId: string): UseTest {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loading, setLoading] = useState(true);
   const [answers, setAnswers] = useState<Record<string, number>>({});
@@ -22,7 +21,7 @@ export function useTest(conceptId: string, sessionId: string): UseTest {
   useEffect(() => {
     let active = true;
     setLoading(true);
-    getQuestions(conceptId).then((qs) => {
+    getQuestions(entityId).then((qs) => {
       if (active) {
         setQuestions(qs);
         setLoading(false);
@@ -31,7 +30,7 @@ export function useTest(conceptId: string, sessionId: string): UseTest {
     return () => {
       active = false;
     };
-  }, [conceptId]);
+  }, [entityId]);
 
   const answer = (questionId: string, optionIdx: number) =>
     setAnswers((a) => ({ ...a, [questionId]: optionIdx }));
@@ -39,7 +38,7 @@ export function useTest(conceptId: string, sessionId: string): UseTest {
   const submit = async () => {
     const res = await submitTest({
       session_id: sessionId,
-      concept_id: conceptId,
+      entity_id: entityId,
       answers,
     });
     setResult(res);

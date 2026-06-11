@@ -3,7 +3,7 @@ import type { ProgressEntry, TestResult } from "../types";
 
 export async function submitTest(payload: {
   session_id: string;
-  concept_id: string;
+  entity_id: string;
   answers: Record<string, number>;
 }): Promise<TestResult> {
   const { data } = await client.post<TestResult>("/api/progress", payload);

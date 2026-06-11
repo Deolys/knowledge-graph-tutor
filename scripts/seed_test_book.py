@@ -1,28 +1,35 @@
 """Загрузка тестового учебника в БД через ingestion pipeline.
 
 Использование:
-    python scripts/seed_test_book.py path/to/book.pdf "Название учебника"
+    python scripts/seed_test_book.py path/to/book.pdf "Название" [profile]
 
-Запускается из каталога backend (нужен доступ к app.*). Создаёт запись книги
-и прогоняет полный пайплайн синхронно — удобно для эксперимента диссертации.
+profile — один из профилей онтологии (universal|math|cs|history|economics),
+по умолчанию universal. Прогоняет полный пайплайн синхронно.
+Перед запуском убедитесь, что онтология синхронизирована: scripts/sync_ontology.py
 """
 import asyncio
 import os
 import shutil
 import sys
 
-# Позволяет запускать из корня репозитория или из backend/
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from app.config import settings  # noqa: E402
 from app.database import async_session_maker  # noqa: E402
 from app.models import Book  # noqa: E402
+from app.ontology import load_ontology  # noqa: E402
 from app.services.ingestion import pipeline  # noqa: E402
 
 
-async def seed(pdf_path: str, title: str) -> None:
+async def seed(pdf_path: str, title: str, profile: str) -> None:
+    if profile not in load_ontology().profiles:
+        print(f"Неизвестный профиль: {profile}")
+        raise SystemExit(1)
+
     async with async_session_maker() as session:
-        book = Book(title=title, filename=os.path.basename(pdf_path))
+        book = Book(
+            title=title, filename=os.path.basename(pdf_path), profile=profile
+        )
         session.add(book)
         await session.flush()
 
@@ -31,7 +38,7 @@ async def seed(pdf_path: str, title: str) -> None:
         shutil.copyfile(pdf_path, dest)
         await session.commit()
 
-        print(f"Книга создана: {book.id} — {title}")
+        print(f"Книга создана: {book.id} — {title} (профиль: {profile})")
         print("Запуск ingestion…")
         await pipeline.run_ingestion(session, book.id, dest)
         print("Готово.")
@@ -39,8 +46,12 @@ async def seed(pdf_path: str, title: str) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python scripts/seed_test_book.py <pdf_path> [title]")
+        print(
+            "Usage: python scripts/seed_test_book.py "
+            "<pdf_path> [title] [profile]"
+        )
         raise SystemExit(1)
     pdf = sys.argv[1]
     name = sys.argv[2] if len(sys.argv) > 2 else os.path.basename(pdf)
-    asyncio.run(seed(pdf, name))
+    prof = sys.argv[3] if len(sys.argv) > 3 else "universal"
+    asyncio.run(seed(pdf, name, prof))

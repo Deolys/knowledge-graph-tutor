@@ -6,9 +6,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-from app.api import books, concepts, progress, qa
+from app.api import books, entities, ontology, progress, qa
 
-app = FastAPI(title="Knowledge Graph Tutor", version="0.1.0")
+app = FastAPI(title="Knowledge Graph Tutor", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,7 +24,8 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+app.include_router(ontology.router)
 app.include_router(books.router)
-app.include_router(concepts.router)
+app.include_router(entities.router)
 app.include_router(progress.router)
 app.include_router(qa.router)

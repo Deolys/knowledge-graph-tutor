@@ -1,122 +1,143 @@
-# Backend Context
+# Backend Context (v2 — ontology-driven)
 
 ## Stack
 
 - **Python 3.12**, FastAPI, async SQLAlchemy 2 (asyncpg driver)
-- **PostgreSQL 16 + pgvector** — хранение графа, эмбеддингов, прогресса
-- **Google Gemini** (`google-genai`) — LLM для извлечения понятий, генерации вопросов, QA
+- **PostgreSQL 16 + pgvector** — типизированный граф, эмбеддинги, прогресс
+- **LLM** — httpx → OpenAI-совместимый endpoint (без SDK). Сейчас за ним Gemini.
 - **sentence-transformers** — многоязычные эмбеддинги (`paraphrase-multilingual-MiniLM-L12-v2`)
 - **pymupdf4llm** — парсинг PDF с сохранением LaTeX-формул
+- **PyYAML** — загрузка онтологии
+
+## Главный принцип: онтология — это данные, а не код
+
+Классы сущностей и типы отношений описаны в `app/ontology/ontology.yaml`.
+Промпты извлечения генерируются динамически из активного профиля, валидация
+читает схему из онтологии. Добавление нового класса = строка в YAML +
+`python scripts/sync_ontology.py`, ноль изменений в коде.
 
 ## Структура `app/`
 
 ```
 app/
-├── main.py          # FastAPI app, CORS, логирование, подключение роутеров
-├── config.py        # Все настройки через pydantic-settings (Settings singleton)
+├── main.py          # FastAPI app, CORS, роутеры
+├── config.py        # pydantic-settings (LLM_*, пороги, GraphRAG)
 ├── database.py      # async engine, async_session_maker, Base, get_session()
-├── prompts.py       # ВСЕ LLM-промпты — только здесь, не в сервисах
+├── prompts.py       # СТАТИЧЕСКИЕ промпты: классификация вопроса, QA, генерация тестов
 │
-├── models/          # SQLAlchemy ORM (UUID PK, server_default)
-│   ├── book.py
-│   ├── chapter.py   # status: pending | processing | done | error
-│   ├── concept.py   # embedding: Vector(384), canonical_id для merge
-│   ├── relation.py  # type: depends_on | part_of | example_of | related_to
-│   ├── question.py  # options: JSONB, correct_idx скрыт в API
-│   └── progress.py  # session_id (без авторизации), status, score, attempts
+├── ontology/
+│   ├── ontology.yaml             # источник правды о типах
+│   ├── traversal_templates.yaml  # шаблоны обхода для GraphRAG
+│   └── loader.py                 # Pydantic Ontology/Profile/Relation, lru_cache
 │
-├── schemas/         # Pydantic request/response (не ORM)
-│   ├── book.py      # BookOut, BookStatusOut, GraphOut (nodes + edges)
-│   ├── concept.py   # ConceptOut, QuestionOut (без correct_idx)
-│   ├── progress.py  # TestSubmit, TestResult (с unlocked), ProgressOut
-│   └── qa.py        # QARequest, QAResponse (с sources)
+├── models/          # SQLAlchemy ORM
+│   ├── ontology.py  # EntityTypeRow, RelationTypeRow, ProfileRow (отражение YAML)
+│   ├── book.py      # + profile (FK profiles)
+│   ├── chapter.py   # status: pending|processing|done|error
+│   ├── entity.py    # типизированный узел: entity_type, attrs JSONB, source_quote, embedding
+│   ├── relation.py  # типизированное ребро: relation_type, source_quote, UNIQUE(from,to,type)
+│   ├── question.py  # entity_id, options JSONB
+│   └── progress.py  # session_id, entity_id, status (+locked)
 │
-├── api/             # Тонкие роутеры — только HTTP-слой
-│   ├── books.py     # POST /upload, GET /{id}, GET /{id}/graph
-│   ├── concepts.py  # GET /{id}, GET /{id}/questions
+├── schemas/         # Pydantic request/response
+│   ├── ontology.py  # OntologyOut, ProfileOut — для UI
+│   ├── book.py      # BookOut(+profile), типизированные GraphNode/GraphEdge
+│   ├── entity.py    # EntityOut (attrs), QuestionOut (без correct_idx)
+│   ├── progress.py  # TestSubmit/TestResult/ProgressOut (entity_id)
+│   └── qa.py        # QAResponse (+traversal_nodes/edges, mode)
+│
+├── api/             # тонкие роутеры
+│   ├── ontology.py  # GET /api/ontology, /api/ontology/profiles
+│   ├── books.py     # upload(+profile), list, status, graph (типизированный)
+│   ├── entities.py  # GET /{id}, GET /{id}/questions
 │   ├── progress.py  # POST /, GET /{session_id}
 │   └── qa.py        # POST /
 │
 └── services/
-    ├── llm.py           # Gemini-клиент (ленивый), retry на ServerError, JSON-парсер
-    ├── embeddings.py    # sentence-transformers (ленивый), encode / encode_batch / cosine
-    ├── test_service.py  # Генерация MCQ (ленивая, кэш в БД), проверка ответов
-    ├── progress_service.py  # submit_test, каскадная логика learned
-    ├── qa_service.py    # pgvector поиск → расширение по графу → LLM
+    ├── llm.py            # httpx OpenAI-compatible, retry на 5xx/429, JSON-парсер
+    ├── embeddings.py     # sentence-transformers (ленивый)
+    ├── graphrag.py       # классификация вопроса → entity linking → обход → контекст
+    ├── qa_service.py     # тонкая обёртка над graphrag
+    ├── test_service.py   # генерация MCQ по сущности (entity_id)
+    ├── progress_service.py  # каскад learned по транзитивному REQUIRES
     └── ingestion/
-        ├── pipeline.py  # Единая точка входа — роутеры вызывают только его
-        ├── pdf_parser.py    # pymupdf4llm → split by headings → fallback by size
-        ├── extractor.py     # 2 LLM-вызова: понятия, затем связи
-        ├── validator.py     # confidence >= 0.7, структурная валидация
-        └── merger.py        # cosine similarity >= 0.85 → canonical concept
+        ├── pipeline.py        # единая точка входа; читает profile книги
+        ├── pdf_parser.py      # pymupdf4llm → split by headings
+        ├── prompt_builder.py  # промпты извлечения ИЗ онтологии
+        ├── extractor.py       # 2 LLM-вызова: сущности, затем отношения
+        ├── validator.py       # онтологическая валидация + quote_in_text
+        └── merger.py          # merge ТОЛЬКО внутри одного entity_type
 ```
 
 ## Правила разработки
 
-**Промпты** — все системные промпты живут только в `app/prompts.py`. В сервисах вызываются как `prompts.EXTRACT_CONCEPTS_SYSTEM` или `prompts.qa_system(context)`. Никогда не встраивать промпты в код сервисов.
+**Онтология** — единственный источник правды о типах. Меняется YAML → меняется
+поведение без правок кода. Новый класс/отношение: правка YAML + `sync_ontology.py`.
 
-**Ingestion** — роутеры вызывают только `pipeline.run_ingestion()`, никогда отдельные шаги (`extractor`, `merger` и т.д.). Это позволяет безопасно менять порядок шагов.
+**Промпты** — статические в `app/prompts.py`, динамические (извлечение) генерируются
+в `prompt_builder.py` из активного профиля. Не хардкодить списки типов в сервисах.
 
-**Сессии БД** — фоновые задачи (`asyncio.create_task`) создают собственную сессию через `async_session_maker()`, а не используют сессию запроса (она закрывается до завершения задачи).
+**Ingestion** — роутеры вызывают только `pipeline.run_ingestion()`.
 
-**LLM-клиент** — инициализируется лениво при первом вызове (`@lru_cache`), чтобы не падать на импорте без API-ключа. Аналогично для модели эмбеддингов.
+**Merge** — никогда не мержить сущности разных типов, даже при сходстве 0.99.
 
-**Ретрай LLM** — `tenacity` с `retry_if_exception_type(ServerError)`, 6 попыток, экспоненциальное ожидание 5–60s. Логирует предупреждение перед каждой паузой.
+**Сессии БД** — фоновые задачи создают свою сессию через `async_session_maker()`.
+
+**LLM-клиент** — httpx, ленивый (`@lru_cache`), Bearer-авторизация, retry (tenacity)
+на 5xx/429/сетевые ошибки.
 
 ## REST API
 
 | Метод | URL | Описание |
 |---|---|---|
-| `POST` | `/api/books/upload` | Загрузить PDF (multipart), запускает ingestion в фоне |
-| `GET`  | `/api/books/{book_id}` | Статус обработки книги + список глав с прогрессом |
-| `GET`  | `/api/books/{book_id}/graph` | Граф: узлы + рёбра. `?session_id=` добавляет статусы прогресса |
-| `GET`  | `/api/concepts/{id}` | Детали понятия |
-| `GET`  | `/api/concepts/{id}/questions` | Вопросы MCQ (генерируются лениво, кэшируются в БД) |
-| `POST` | `/api/progress` | Отправить ответы на тест → `{score, status, unlocked[]}` |
-| `GET`  | `/api/progress/{session_id}` | Весь прогресс сессии |
-| `POST` | `/api/qa` | Вопрос → ответ по контексту графа + источники |
+| `GET`  | `/api/ontology` | Активная онтология (типы, цвета, профили) |
+| `GET`  | `/api/ontology/profiles` | Список профилей |
+| `POST` | `/api/books/upload` | PDF (multipart) + `profile`, ingestion в фоне |
+| `GET`  | `/api/books/{id}` | Статус обработки + главы |
+| `GET`  | `/api/books/{id}/graph` | Типизированный граф; `?session_id=` добавляет статусы |
+| `GET`  | `/api/entities/{id}` | Детали сущности (attrs) |
+| `GET`  | `/api/entities/{id}/questions` | MCQ (ленивая генерация, кэш в БД) |
+| `POST` | `/api/progress` | Тест → `{score, status, unlocked[]}` |
+| `GET`  | `/api/progress/{session_id}` | Прогресс сессии |
+| `POST` | `/api/qa` | Вопрос → ответ + `traversal_nodes/edges` + `mode` |
 | `GET`  | `/health` | `{"status": "ok"}` |
 
 ## Модель данных
 
 ```
-books ──< chapters ──< concepts >── relations (from_id → to_id)
-                           │
-                           └──< questions
-                           └──< progress (session_id + concept_id)
+entity_types ─┐   relation_types ─┐   profiles ─┐
+              │ (FK)              │ (FK)         │ (FK)
+books(profile) ──< chapters ──< entities >── relations (from_id → to_id, типизированы)
+                                    │
+                                    └──< questions
+                                    └──< progress (session_id + entity_id)
 ```
 
-**Concept.canonical_id** — ссылка на канонический узел после merge. Если `NULL` — сам узел канонический.
-
-**Relation.type** — `depends_on | part_of | example_of | related_to`
-
-**Progress.status** — `not_started | in_progress | learned`
+- **Entity.attrs** — JSONB по схеме класса (definition, latex, steps, …)
+- **Entity.source_quote** — цитата из текста (обязательна при извлечении)
+- **Relation.relation_type** — из онтологии; `source_quote` обязателен
+- **Progress.status** — `not_started | in_progress | learned | locked`
 
 ## Каскадная логика "learned"
 
-Узел становится `learned` когда:
-1. `score >= LEARNED_SCORE_THRESHOLD` (по умолчанию `0.7`)
-2. Все узлы, на которые указывает его `depends_on`-рёбро (`Relation.from_id = concept, type = depends_on`), тоже `learned`
+Узел `learned` ⇔ `score >= LEARNED_SCORE_THRESHOLD` И все его пререквизиты
+(сущности, на которые он указывает связью `REQUIRES`) тоже `learned`. После
+перехода в learned — переоценка прямых зависимых вверх по графу REQUIRES;
+список разблокированных в `TestResult.unlocked`.
 
-После перехода узла в `learned` — BFS вверх по графу: все потомки, у которых уже достаточный `score`, могут разблокироваться. Список разблокированных возвращается в `TestResult.unlocked`.
+## GraphRAG (services/graphrag.py)
 
-## QA-сервис
+1. Классификация типа вопроса (дешёвая модель) → шаблон из `traversal_templates.yaml`
+2. Entity linking: эмбеддинг вопроса → top-3 сущности книги (порог `ENTITY_LINK_THRESHOLD`)
+3. Типизированный BFS по шаблону; ранжирование `traversal_weight × confidence`,
+   бюджет `GRAPHRAG_MAX_ENTITIES`
+4. Сборка контекста (группировка по типам, цитаты) → LLM-ответ строго из контекста
+5. Fallback: если привязка < порога — векторный top-5 без обхода, `mode=vector_fallback`
+6. Ответ содержит `traversal_nodes/edges` для подсветки на графе
 
-1. Эмбеддинг запроса → pgvector cosine search, top-5 понятий книги
-2. Расширение контекста: соседи глубины 1 (все рёбра входящие/исходящие от top-5)
-3. Контекст форматируется как `### Название\nОпределение\nФормула` и передаётся в system-промпт
-4. LLM отвечает строго по контексту (`prompts.qa_system(context)`)
-5. В ответе — `sources[]` из исходных top-5 узлов
+## Порядок первого запуска
 
-## Конфигурация (`app/config.py`)
-
-| Переменная | Назначение | Дефолт |
-|---|---|---|
-| `GEMINI_API_KEY` | Ключ Gemini API | — |
-| `MODEL` | Имя модели Gemini | `gemini-2.0-flash` |
-| `DATABASE_URL` | asyncpg URL | `localhost:5432/kgtutor` |
-| `CONFIDENCE_THRESHOLD` | Минимальный confidence связи | `0.7` |
-| `MERGE_THRESHOLD` | Порог cosine для merge понятий | `0.85` |
-| `EMBEDDINGS_MODEL` | Модель sentence-transformers | `paraphrase-multilingual-MiniLM-L12-v2` |
-| `QUESTIONS_PER_CONCEPT` | MCQ-вопросов на понятие | `3` |
-| `LEARNED_SCORE_THRESHOLD` | Порог score для "learned" | `0.7` |
+```bash
+alembic upgrade head            # схема (включая таблицы онтологии)
+python scripts/sync_ontology.py # YAML → БД (до ingestion: entities FK → entity_types)
+```

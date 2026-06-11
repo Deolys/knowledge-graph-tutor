@@ -6,13 +6,14 @@ import uuid
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 logger = logging.getLogger(__name__)
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session_maker, get_session
 from app.models import Book, Chapter, Concept, Progress, Relation
 from app.schemas.book import (
+    BookListItem,
     BookOut,
     BookStatusOut,
     ChapterStatusOut,
@@ -59,6 +60,70 @@ async def upload_book(
 
     asyncio.create_task(_run_ingestion_bg(book.id, dest))
     return book
+
+
+@router.get("", response_model=list[BookListItem])
+async def list_books(
+    session: AsyncSession = Depends(get_session),
+) -> list[BookListItem]:
+    """Список всех книг с агрегатом обработки — для страницы выбора графа."""
+    books = (
+        await session.execute(select(Book).order_by(Book.created_at.desc()))
+    ).scalars().all()
+    if not books:
+        return []
+
+    book_ids = [b.id for b in books]
+
+    # Агрегаты по главам: всего и по статусам — одним запросом на каждую группу.
+    ch_rows = (
+        await session.execute(
+            select(Chapter.book_id, Chapter.status, func.count())
+            .where(Chapter.book_id.in_(book_ids))
+            .group_by(Chapter.book_id, Chapter.status)
+        )
+    ).all()
+    total_by_book: dict[uuid.UUID, int] = {}
+    done_by_book: dict[uuid.UUID, int] = {}
+    error_by_book: dict[uuid.UUID, int] = {}
+    for bid, st, cnt in ch_rows:
+        total_by_book[bid] = total_by_book.get(bid, 0) + cnt
+        if st == "done":
+            done_by_book[bid] = done_by_book.get(bid, 0) + cnt
+        elif st == "error":
+            error_by_book[bid] = error_by_book.get(bid, 0) + cnt
+
+    concept_rows = (
+        await session.execute(
+            select(Concept.book_id, func.count())
+            .where(Concept.book_id.in_(book_ids))
+            .group_by(Concept.book_id)
+        )
+    ).all()
+    concepts_by_book = {bid: cnt for bid, cnt in concept_rows}
+
+    items: list[BookListItem] = []
+    for b in books:
+        total = total_by_book.get(b.id, 0)
+        done = done_by_book.get(b.id, 0)
+        errors = error_by_book.get(b.id, 0)
+        if total > 0 and done + errors >= total:
+            status = "error" if errors and done == 0 else "done"
+        else:
+            status = "processing"
+        items.append(
+            BookListItem(
+                id=b.id,
+                title=b.title,
+                filename=b.filename,
+                created_at=b.created_at,
+                chapters_total=total,
+                chapters_done=done,
+                concepts_count=concepts_by_book.get(b.id, 0),
+                status=status,
+            )
+        )
+    return items
 
 
 @router.get("/{book_id}", response_model=BookStatusOut)

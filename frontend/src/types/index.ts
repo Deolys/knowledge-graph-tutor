@@ -32,6 +32,17 @@ export interface Book {
   created_at: string;
 }
 
+export interface BookListItem {
+  id: string;
+  title: string;
+  filename: string;
+  created_at: string;
+  chapters_total: number;
+  chapters_done: number;
+  concepts_count: number;
+  status: "processing" | "done" | "error";
+}
+
 export interface ChapterStatus {
   id: string;
   title: string;

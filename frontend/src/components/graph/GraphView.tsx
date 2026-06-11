@@ -42,7 +42,7 @@ export function GraphView({ bookId, sessionId }: Props) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center text-muted-foreground">
         <div className="flex items-center gap-2">
           <div className="size-5 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           Загрузка графа…
@@ -52,7 +52,7 @@ export function GraphView({ bookId, sessionId }: Props) {
   }
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className="flex flex-1 min-h-0 bg-background overflow-hidden">
       <div className="relative flex-1">
         <div className="absolute top-3 right-3 z-10">
           <Button

@@ -31,6 +31,19 @@ class BookStatusOut(BaseModel):
     done: bool
 
 
+class BookListItem(BaseModel):
+    """Элемент списка книг с агрегатом обработки для страницы выбора графа."""
+    id: uuid.UUID
+    title: str
+    filename: str
+    created_at: datetime
+    chapters_total: int
+    chapters_done: int
+    concepts_count: int
+    # processing | done | error — агрегатный статус по главам
+    status: str
+
+
 class GraphNode(BaseModel):
     id: uuid.UUID
     name: str

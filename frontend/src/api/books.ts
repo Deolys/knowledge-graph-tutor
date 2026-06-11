@@ -1,5 +1,10 @@
 import { client } from "./client";
-import type { Book, BookStatus, Graph } from "../types";
+import type { Book, BookListItem, BookStatus, Graph } from "../types";
+
+export async function listBooks(): Promise<BookListItem[]> {
+  const { data } = await client.get<BookListItem[]>("/api/books");
+  return data;
+}
 
 export async function uploadBook(file: File): Promise<Book> {
   const form = new FormData();

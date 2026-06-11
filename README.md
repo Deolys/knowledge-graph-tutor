@@ -37,6 +37,10 @@
    ```bash
    docker-compose logs -f backend
    ```
+Пересобрать:
+   ```bash
+   docker-compose up -d --build backend 2>&1 | tail -4
+   ```
 3. Примените миграции (один раз):
 
    ```bash

@@ -136,3 +136,5 @@ Aliases: {
       "@/*": ["./*"]
     }
 }
+
+Do not write the comments in the frontend code

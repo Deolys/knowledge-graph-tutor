@@ -33,7 +33,7 @@ export function NodePanel({ node, sessionId, onClose }: Props) {
       </div>
       <Separator />
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="p-4 space-y-4">
           {!concept ? (
             <div className="flex items-center gap-2 text-muted-foreground text-sm py-4">

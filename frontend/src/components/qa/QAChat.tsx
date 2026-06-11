@@ -48,7 +48,7 @@ export function QAChat({ bookId, sessionId }: Props) {
       <div className="p-4 font-semibold">Вопрос по учебнику</div>
       <Separator />
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
         <div className="p-4 space-y-3">
           {messages.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-8">
@@ -62,16 +62,20 @@ export function QAChat({ bookId, sessionId }: Props) {
             >
               <div
                 className={cn(
-                  "rounded-lg px-3 py-2 text-sm max-w-[90%]",
+                  "rounded-lg px-3 py-2 text-sm max-w-[90%] break-words whitespace-pre-wrap",
                   m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground",
                 )}
               >
                 {m.text}
               </div>
               {m.sources && m.sources.length > 0 && (
-                <div className="flex flex-wrap gap-1 px-1">
+                <div className="flex flex-wrap gap-1 px-1 max-w-full">
                   {m.sources.map((s) => (
-                    <Badge key={s.id} variant="outline" className="text-xs">
+                    <Badge
+                      key={s.id}
+                      variant="outline"
+                      className="h-auto max-w-full whitespace-normal break-words py-0.5 text-xs leading-snug"
+                    >
                       {s.name}
                     </Badge>
                   ))}

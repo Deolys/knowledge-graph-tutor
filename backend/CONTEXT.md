@@ -135,6 +135,10 @@ books(profile) ──< chapters ──< entities >── relations (from_id → 
 5. Fallback: если привязка < порога — векторный top-5 без обхода, `mode=vector_fallback`
 6. Ответ содержит `traversal_nodes/edges` для подсветки на графе
 
+`QARequest.mode` принудительно выбирает стратегию (для экспериментов):
+`auto` (по умолчанию) | `graphrag` | `vector` | `none` (бейзлайн без контекста).
+Сравнение режимов: `python scripts/eval_qa_modes.py <book_id> questions.json --judge`.
+
 ## Порядок первого запуска
 
 ```bash

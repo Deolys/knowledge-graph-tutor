@@ -7,6 +7,10 @@
 4. Сборка структурированного контекста (группировка по типам, с цитатами).
 5. LLM-ответ строго из контекста.
 Если ни одна сущность не привязалась с порогом — vector_fallback (top-5 без обхода).
+
+Поле QARequest.mode позволяет принудительно выбрать стратегию для экспериментов:
+auto (обычное поведение), graphrag (обход даже при слабой привязке),
+vector (только векторный поиск), none (бейзлайн без контекста).
 """
 import uuid
 from collections import defaultdict
@@ -26,13 +30,22 @@ FALLBACK_TOP_K = 5
 
 
 async def answer(session: AsyncSession, payload: QARequest) -> QAResponse:
+    if payload.mode == "none":
+        return await _no_context(payload)
+
     ontology = load_ontology()
     query_vec = embeddings.encode(payload.query)
+
+    if payload.mode == "vector":
+        return await _vector_fallback(session, payload, query_vec)
 
     linked = await _link_entities(session, payload.book_id, query_vec, LINK_TOP_K)
     best_sim = linked[0][1] if linked else 0.0
 
-    if not linked or best_sim < settings.entity_link_threshold:
+    if not linked or (
+        payload.mode != "graphrag"
+        and best_sim < settings.entity_link_threshold
+    ):
         return await _vector_fallback(session, payload, query_vec)
 
     template = await _classify(payload.query, ontology)
@@ -175,6 +188,20 @@ async def _traverse(
         (f, t, rt) for (f, t, rt) in used_edges if f in kept and t in kept
     ]
     return ordered, edges
+
+
+async def _no_context(payload: QARequest) -> QAResponse:
+    """Бейзлайн для экспериментов: LLM отвечает без какого-либо контекста."""
+    answer_text = await llm.generate_text(
+        prompts.qa_no_context_system(), payload.query
+    )
+    return QAResponse(
+        answer=answer_text,
+        sources=[],
+        traversal_nodes=[],
+        traversal_edges=[],
+        mode="no_context",
+    )
 
 
 async def _vector_fallback(

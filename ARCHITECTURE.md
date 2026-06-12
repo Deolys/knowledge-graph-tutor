@@ -67,7 +67,8 @@ knowledge-graph-tutor/
 │               ├── prompt_builder.py  # промпты извлечения ИЗ онтологии
 │               ├── extractor.py       # 2 LLM-вызова (сущности, отношения)
 │               ├── validator.py       # онтологическая валидация + quote_in_text
-│               └── merger.py          # merge только внутри одного entity_type
+│               ├── merger.py          # merge только внутри одного entity_type
+│               └── cycle_breaker.py   # транзитивные отношения → DAG
 │
 ├── frontend/                          # React 19 + TS + Vite + Tailwind + shadcn
 │   └── src/
@@ -85,7 +86,9 @@ knowledge-graph-tutor/
 └── scripts/
     ├── sync_ontology.py               # YAML → таблицы онтологии
     ├── seed_test_book.py              # загрузка книги (с профилем)
-    └── eval_graph_quality.py          # precision/recall/F1 по типам
+    ├── eval_graph_quality.py          # precision/recall/F1 по типам
+    ├── eval_qa_modes.py               # сравнение режимов QA (+LLM-судья)
+    └── check_graph_cycles.py          # циклы REQUIRES/PART_OF у книги [--fix]
 ```
 
 ## Порядок первого запуска
@@ -98,7 +101,8 @@ python scripts/sync_ontology.py # YAML → БД (ДО ingestion: entities FK →
 ## Ключевые потоки
 
 - **Ingestion:** PDF → главы → типизированное извлечение (промпт из профиля) →
-  онтологическая валидация (+ проверка цитат) → merge внутри типа → запись.
+  онтологическая валидация (+ проверка цитат) → merge внутри типа →
+  разрыв циклов в транзитивных отношениях (DAG) → запись.
 - **GraphRAG:** вопрос → классификация → entity linking → BFS по шаблону
   (ранжирование `traversal_weight × confidence`) → контекст → LLM-ответ +
   `traversal_path`. Fallback на векторный поиск при низкой привязке.

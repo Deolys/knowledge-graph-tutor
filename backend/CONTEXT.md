@@ -66,7 +66,8 @@ app/
         ├── prompt_builder.py  # промпты извлечения ИЗ онтологии
         ├── extractor.py       # 2 LLM-вызова: сущности, затем отношения
         ├── validator.py       # онтологическая валидация + quote_in_text
-        └── merger.py          # merge ТОЛЬКО внутри одного entity_type
+        ├── merger.py          # merge ТОЛЬКО внутри одного entity_type
+        └── cycle_breaker.py   # разрыв циклов в транзитивных отношениях (DAG)
 ```
 
 ## Правила разработки
@@ -124,6 +125,11 @@ books(profile) ──< chapters ──< entities >── relations (from_id → 
 (сущности, на которые он указывает связью `REQUIRES`) тоже `learned`. После
 перехода в learned — переоценка прямых зависимых вверх по графу REQUIRES;
 список разблокированных в `TestResult.unlocked`.
+
+Инвариант: подграфы транзитивных отношений (REQUIRES, PART_OF) — DAG.
+Цикл в REQUIRES блокирует каскад навсегда, поэтому ingestion разрывает циклы
+(`cycle_breaker.py`: удаляется ребро с минимальным confidence в цикле).
+Проверка уже загруженных книг: `python scripts/check_graph_cycles.py <book_id> [--fix]`.
 
 ## GraphRAG (services/graphrag.py)
 

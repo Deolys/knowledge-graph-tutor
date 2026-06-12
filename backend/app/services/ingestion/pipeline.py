@@ -3,8 +3,10 @@
 API-роутеры вызывают только run_ingestion(). Поток (онтологически управляемый):
 parse PDF → главы → по каждой главе типизированное извлечение сущностей и
 отношений (промпты из активного профиля) → онтологическая валидация →
-merge внутри типа → запись типизированных узлов и рёбер.
+merge внутри типа → разрыв циклов в транзитивных отношениях → запись
+типизированных узлов и рёбер.
 """
+import logging
 import uuid
 
 from sqlalchemy import update
@@ -12,7 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Book, Chapter, Entity, Relation
 from app.ontology import load_ontology
-from app.services.ingestion import extractor, merger, pdf_parser, validator
+from app.services.ingestion import (
+    cycle_breaker,
+    extractor,
+    merger,
+    pdf_parser,
+    validator,
+)
+
+logger = logging.getLogger(__name__)
 
 
 async def run_ingestion(
@@ -20,7 +30,8 @@ async def run_ingestion(
 ) -> None:
     """Полный прогон пайплайна для одной книги (по её профилю онтологии)."""
     book = await session.get(Book, book_id)
-    profile = load_ontology().profile(book.profile if book else "universal")
+    ontology = load_ontology()
+    profile = ontology.profile(book.profile if book else "universal")
 
     raw_chapters = pdf_parser.extract_chapters(pdf_path)
 
@@ -88,8 +99,9 @@ async def run_ingestion(
         entity_ids[e["name"].lower()] = row.id
         chapter_by_name[e["name"].lower()] = e.get("chapter_id")
 
-    # Запись рёбер: имена → канонические имена → id.
+    # Резолвинг рёбер: имена → канонические имена → id.
     seen: set[tuple[uuid.UUID, uuid.UUID, str]] = set()
+    edge_dicts: list[dict] = []
     for r in all_relations:
         frm_name = name_map.get(r["from"].lower())
         to_name = name_map.get(r["to"].lower())
@@ -105,19 +117,40 @@ async def run_ingestion(
         seen.add(key)
         from_ch = chapter_by_name.get(frm_name.lower())
         to_ch = chapter_by_name.get(to_name.lower())
-        session.add(
-            Relation(
-                book_id=book_id,
-                from_id=from_id,
-                to_id=to_id,
-                relation_type=r["relation_type"],
-                confidence=r["confidence"],
-                source_quote=r["source_quote"],
-                is_cross_chapter=bool(
+        edge_dicts.append(
+            {
+                "from_id": from_id,
+                "to_id": to_id,
+                "relation_type": r["relation_type"],
+                "confidence": r["confidence"],
+                "source_quote": r["source_quote"],
+                "is_cross_chapter": bool(
                     from_ch and to_ch and from_ch != to_ch
                 ),
-            )
+            }
         )
+
+    # Транзитивные отношения (REQUIRES, PART_OF) должны быть DAG — иначе
+    # каскадная логика learned блокируется циклом навсегда.
+    transitive_types = {
+        name
+        for name, rt in ontology.relation_types.items()
+        if rt.is_transitive
+    }
+    kept_edges, removed_edges = cycle_breaker.break_cycles(
+        edge_dicts, transitive_types
+    )
+    for e in removed_edges:
+        logger.warning(
+            "Разрыв цикла %s: удалено ребро %s → %s (confidence=%.2f)",
+            e["relation_type"],
+            e["from_id"],
+            e["to_id"],
+            e["confidence"],
+        )
+
+    for e in kept_edges:
+        session.add(Relation(book_id=book_id, **e))
 
     await session.commit()
 

@@ -3,7 +3,8 @@
 Поток (knowledge_graph_analytics.md §5):
 1. Классификация типа вопроса (дешёвая модель) → шаблон обхода.
 2. Entity linking: эмбеддинг вопроса → top-3 сущности книги.
-3. Обход графа по шаблону (BFS вдоль заданных отношений/направлений/глубины).
+3. Обход графа по шаблону (BFS вдоль заданных отношений/направлений/глубины)
+   с затуханием релевантности вдоль пути (см. _traverse).
 4. Сборка структурированного контекста (группировка по типам, с цитатами).
 5. LLM-ответ строго из контекста.
 Если ни одна сущность не привязалась с порогом — vector_fallback (top-5 без обхода).
@@ -49,12 +50,15 @@ async def answer(session: AsyncSession, payload: QARequest) -> QAResponse:
         return await _vector_fallback(session, payload, query_vec)
 
     template = await _classify(payload.query, ontology)
-    matched = [e for e, _ in linked if e.entity_type in template.match_types]
-    if not matched:
-        matched = [e for e, _ in linked]
+    matched_pairs = [
+        (e, sim) for e, sim in linked if e.entity_type in template.match_types
+    ]
+    if not matched_pairs:
+        matched_pairs = linked
+    matched = [e for e, _ in matched_pairs]
 
     context_entities, edges = await _traverse(
-        session, payload.book_id, matched, template, ontology
+        session, payload.book_id, matched_pairs, template, ontology
     )
 
     context = _format_context(context_entities, ontology)
@@ -118,11 +122,17 @@ async def _link_entities(
 async def _traverse(
     session: AsyncSession,
     book_id: uuid.UUID,
-    matched: list[Entity],
+    matched: list[tuple[Entity, float]],
     template: TraversalTemplate,
     ontology: Ontology,
 ) -> tuple[list[Entity], list[tuple[uuid.UUID, uuid.UUID, str]]]:
-    """BFS по шаблону. Ранжирование кандидатов: traversal_weight × confidence."""
+    """BFS с затуханием релевантности вдоль пути.
+
+    Стартовый скор узла — близость вопроса к привязанной сущности; при переходе
+    по ребру он умножается на traversal_weight × confidence, поэтому дальние
+    узлы естественно ранжируются ниже ближних. Итоговый скор узла — максимум
+    по всем путям/шагам шаблона.
+    """
     relations = (
         await session.execute(
             select(Relation).where(Relation.book_id == book_id)
@@ -135,8 +145,9 @@ async def _traverse(
         out_by_node[r.from_id].append(r)
         in_by_node[r.to_id].append(r)
 
-    matched_ids = {e.id for e in matched}
-    scores: dict[uuid.UUID, float] = {mid: float("inf") for mid in matched_ids}
+    seeds = {e.id: sim for e, sim in matched}
+    matched_ids = set(seeds)
+    scores: dict[uuid.UUID, float] = dict(seeds)
     used_edges: set[tuple[uuid.UUID, uuid.UUID, str]] = set()
 
     for step in template.expand:
@@ -145,10 +156,10 @@ async def _traverse(
             if step.relation in ontology.relation_types
             else 0.5
         )
-        frontier = set(matched_ids)
+        frontier: dict[uuid.UUID, float] = dict(seeds)
         for _ in range(step.depth):
-            nxt: set[uuid.UUID] = set()
-            for node in frontier:
+            nxt: dict[uuid.UUID, float] = {}
+            for node, node_score in frontier.items():
                 edges: list[tuple[Relation, uuid.UUID]] = []
                 if step.direction in ("out", "both"):
                     edges += [
@@ -164,10 +175,13 @@ async def _traverse(
                     ]
                 for r, other in edges:
                     used_edges.add((r.from_id, r.to_id, r.relation_type))
-                    cand_score = weight * r.confidence
-                    if cand_score > scores.get(other, 0.0):
+                    cand_score = node_score * weight * r.confidence
+                    if cand_score > nxt.get(other, 0.0):
+                        nxt[other] = cand_score
+                    if other not in matched_ids and cand_score > scores.get(
+                        other, 0.0
+                    ):
                         scores[other] = cand_score
-                    nxt.add(other)
             frontier = nxt
 
     # Бюджет контекста: matched первыми, остальные по убыванию score.

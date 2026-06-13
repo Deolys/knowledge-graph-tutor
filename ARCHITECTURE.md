@@ -104,7 +104,8 @@ python scripts/sync_ontology.py # YAML → БД (ДО ingestion: entities FK →
   онтологическая валидация (+ проверка цитат) → merge внутри типа →
   разрыв циклов в транзитивных отношениях (DAG) → запись.
 - **GraphRAG:** вопрос → классификация → entity linking → BFS по шаблону
-  (ранжирование `traversal_weight × confidence`) → контекст → LLM-ответ +
-  `traversal_path`. Fallback на векторный поиск при низкой привязке.
+  с затуханием скора вдоль пути (`score(узла) = score(родителя) ×
+  traversal_weight × confidence`) → контекст → LLM-ответ + `traversal_path`.
+  Fallback на векторный поиск при низкой привязке.
 - **Прогресс:** узел `learned` ⇔ `score ≥ порог` И все `REQUIRES`-пререквизиты
   усвоены; каскадная разблокировка зависимых.

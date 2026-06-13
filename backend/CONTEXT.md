@@ -135,7 +135,9 @@ books(profile) ──< chapters ──< entities >── relations (from_id → 
 
 1. Классификация типа вопроса (дешёвая модель) → шаблон из `traversal_templates.yaml`
 2. Entity linking: эмбеддинг вопроса → top-3 сущности книги (порог `ENTITY_LINK_THRESHOLD`)
-3. Типизированный BFS по шаблону; ранжирование `traversal_weight × confidence`,
+3. Типизированный BFS с затуханием релевантности вдоль пути: стартовый скор
+   узла — близость вопроса к сущности, при переходе по ребру умножается на
+   `traversal_weight × confidence` (дальние узлы ранжируются ниже ближних);
    бюджет `GRAPHRAG_MAX_ENTITIES`
 4. Сборка контекста (группировка по типам, цитаты) → LLM-ответ строго из контекста
 5. Fallback: если привязка < порога — векторный top-5 без обхода, `mode=vector_fallback`

@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
+  Coins,
   Loader2,
   Network,
   RefreshCw,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { listBooks } from "../../api/books";
+import { listBooks, deleteBook } from "../../api/books";
 import type { BookListItem } from "../../types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -41,6 +43,15 @@ export function GraphsListPage() {
       setBooks(await listBooks());
     } catch {
       setError(true);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    setBooks((prev) => prev?.filter((b) => b.id !== id) ?? null);
+    try {
+      await deleteBook(id);
+    } catch {
+      load();
     }
   };
 
@@ -139,7 +150,7 @@ export function GraphsListPage() {
         <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {books.map((book) => (
             <li key={book.id}>
-              <GraphCard book={book} />
+              <GraphCard book={book} onDelete={() => handleDelete(book.id)} />
             </li>
           ))}
         </ul>
@@ -148,7 +159,13 @@ export function GraphsListPage() {
   );
 }
 
-function GraphCard({ book }: { book: BookListItem }) {
+function GraphCard({
+  book,
+  onDelete,
+}: {
+  book: BookListItem;
+  onDelete: () => void;
+}) {
   const cfg = STATUS_CONFIG[book.status] ?? STATUS_CONFIG.processing;
   const Icon = cfg.icon;
   const ready = book.status === "done";
@@ -157,17 +174,38 @@ function GraphCard({ book }: { book: BookListItem }) {
       ? Math.round((book.chapters_done / book.chapters_total) * 100)
       : 0;
 
+  const handleDeleteClick = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (confirm(`Удалить граф «${book.title}»? Действие необратимо.`)) {
+      onDelete();
+    }
+  };
+
+  const deleteButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="absolute right-2 top-2 z-10 size-7 text-muted-foreground hover:text-destructive"
+      onClick={handleDeleteClick}
+      title="Удалить граф"
+    >
+      <Trash2 className="size-4" />
+    </Button>
+  );
+
   const card = (
     <Card
       className={cn(
-        "h-full transition-all",
+        "relative h-full transition-all",
         ready
           ? "hover:border-primary/40 hover:shadow-sm"
           : "opacity-95",
       )}
     >
+      {deleteButton}
       <CardContent className="flex h-full flex-col gap-3 p-5">
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-3 pr-8">
           <h2 className="line-clamp-2 font-semibold leading-snug" title={book.title}>
             {book.title}
           </h2>
@@ -185,6 +223,14 @@ function GraphCard({ book }: { book: BookListItem }) {
             <> · {book.entities_count} сущностей</>
           )}
         </p>
+
+        {ready && book.total_tokens > 0 && (
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Coins className="size-3.5" />
+            {book.total_tokens.toLocaleString("ru-RU")} токенов
+            {book.llm_calls > 0 && <> · {book.llm_calls} вызовов LLM</>}
+          </p>
+        )}
 
         {book.status === "processing" && (
           <div className="mt-auto space-y-1.5">

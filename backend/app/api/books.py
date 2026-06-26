@@ -127,9 +127,32 @@ async def list_books(
                 chapters_done=done,
                 entities_count=entities_by_book.get(b.id, 0),
                 status=status,
+                total_tokens=b.total_tokens or 0,
+                llm_calls=b.llm_calls or 0,
             )
         )
     return items
+
+
+@router.delete("/{book_id}", status_code=204)
+async def delete_book(
+    book_id: uuid.UUID, session: AsyncSession = Depends(get_session)
+) -> None:
+    """Полное удаление книги: каскадно главы/сущности/связи/вопросы/прогресс/тесты
+    (через FK ondelete=CASCADE) + PDF-файл с диска."""
+    book = await session.get(Book, book_id)
+    if not book:
+        raise HTTPException(404, "Книга не найдена")
+
+    await session.delete(book)
+    await session.commit()
+
+    pdf_path = os.path.join(settings.upload_dir, f"{book_id}.pdf")
+    try:
+        if os.path.exists(pdf_path):
+            os.remove(pdf_path)
+    except OSError:
+        logger.warning("Не удалось удалить PDF: %s", pdf_path)
 
 
 @router.get("/{book_id}", response_model=BookStatusOut)

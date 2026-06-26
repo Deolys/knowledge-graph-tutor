@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Book, Chapter, Entity, Relation
 from app.ontology import load_ontology
+from app.services import llm
 from app.services.ingestion import (
     cycle_breaker,
     extractor,
@@ -28,7 +29,21 @@ logger = logging.getLogger(__name__)
 async def run_ingestion(
     session: AsyncSession, book_id: uuid.UUID, pdf_path: str
 ) -> None:
-    """Полный прогон пайплайна для одной книги (по её профилю онтологии)."""
+    """Полный прогон пайплайна для одной книги (по её профилю онтологии).
+
+    Все LLM-вызовы пайплайна оборачиваются в track_usage; суммарные токены
+    записываются в книгу (оценка стоимости построения графа).
+    """
+    with llm.track_usage() as usage:
+        await _run_ingestion(session, book_id, pdf_path, usage)
+
+
+async def _run_ingestion(
+    session: AsyncSession,
+    book_id: uuid.UUID,
+    pdf_path: str,
+    usage: "llm.TokenUsage",
+) -> None:
     book = await session.get(Book, book_id)
     ontology = load_ontology()
     profile = ontology.profile(book.profile if book else "universal")
@@ -151,6 +166,21 @@ async def run_ingestion(
 
     for e in kept_edges:
         session.add(Relation(book_id=book_id, **e))
+
+    if book is not None:
+        book.prompt_tokens = usage.prompt_tokens
+        book.completion_tokens = usage.completion_tokens
+        book.total_tokens = usage.total_tokens
+        book.llm_calls = usage.calls
+        logger.info(
+            "Ingestion tokens book_id=%s: total=%d (prompt=%d, completion=%d) "
+            "за %d вызовов LLM",
+            book_id,
+            usage.total_tokens,
+            usage.prompt_tokens,
+            usage.completion_tokens,
+            usage.calls,
+        )
 
     await session.commit()
 

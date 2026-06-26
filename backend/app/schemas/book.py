@@ -45,6 +45,9 @@ class BookListItem(BaseModel):
     entities_count: int
     # processing | done | error — агрегатный статус по главам
     status: str
+    # токены LLM на ingestion (оценка стоимости построения графа)
+    total_tokens: int = 0
+    llm_calls: int = 0
 
 
 class GraphNode(BaseModel):

@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 
-from app.api import books, entities, ontology, progress, qa
+from app.api import books, entities, ontology, progress, qa, tests
 from app.ontology.sync import sync_on_startup
 
 
@@ -39,3 +39,4 @@ app.include_router(books.router)
 app.include_router(entities.router)
 app.include_router(progress.router)
 app.include_router(qa.router)
+app.include_router(tests.router)

@@ -6,6 +6,7 @@ from app.models.ontology import EntityTypeRow, ProfileRow, RelationTypeRow
 from app.models.progress import Progress
 from app.models.question import Question
 from app.models.relation import Relation
+from app.models.test import Test, TestQuestion
 
 __all__ = [
     "Book",
@@ -17,4 +18,6 @@ __all__ = [
     "Progress",
     "Question",
     "Relation",
+    "Test",
+    "TestQuestion",
 ]

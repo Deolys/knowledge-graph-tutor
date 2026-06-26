@@ -31,3 +31,7 @@ export async function getGraph(
   });
   return data;
 }
+
+export async function deleteBook(bookId: string): Promise<void> {
+  await client.delete(`/api/books/${bookId}`);
+}

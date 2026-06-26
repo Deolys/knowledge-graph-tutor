@@ -2,7 +2,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, func, text
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,17 @@ class Book(Base):
         ForeignKey("profiles.profile_name"),
         server_default=text("'universal'"),
     )
+    # Токены LLM, затраченные на ingestion (для оценки стоимости графа).
+    prompt_tokens: Mapped[int] = mapped_column(
+        Integer, server_default=text("0")
+    )
+    completion_tokens: Mapped[int] = mapped_column(
+        Integer, server_default=text("0")
+    )
+    total_tokens: Mapped[int] = mapped_column(
+        Integer, server_default=text("0")
+    )
+    llm_calls: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now()
     )

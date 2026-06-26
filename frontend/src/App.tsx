@@ -4,6 +4,8 @@ import { LandingPage } from "./components/landing/LandingPage";
 import { GraphsListPage } from "./components/graph/GraphsListPage";
 import { GraphPage } from "./components/graph/GraphPage";
 import { UploadPage } from "./components/upload/UploadPage";
+import { TestsListPage } from "./components/test/TestsListPage";
+import { GraphTestPage } from "./components/test/GraphTestPage";
 
 export function App() {
   return (
@@ -14,6 +16,8 @@ export function App() {
           <Route path="upload" element={<UploadPage />} />
           <Route path="graphs" element={<GraphsListPage />} />
           <Route path="graphs/:bookId" element={<GraphPage />} />
+          <Route path="tests" element={<TestsListPage />} />
+          <Route path="tests/:testId" element={<GraphTestPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

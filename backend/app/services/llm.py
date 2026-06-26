@@ -4,9 +4,11 @@
 здесь — только транспорт, повторные попытки и разбор ответа. Сейчас за endpoint
 стоит Gemini (OpenAI-compatible), позже можно подменить на Anthropic.
 """
+import contextvars
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 from functools import lru_cache
 from typing import Any
 
@@ -25,6 +27,49 @@ logger = logging.getLogger(__name__)
 
 # Снимает обёртку ```json ... ``` если модель её добавила
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+
+
+@dataclass
+class TokenUsage:
+    """Аккумулятор токенов LLM в пределах одной задачи (напр. ingestion книги)."""
+
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
+    calls: int = 0
+    models: set[str] = field(default_factory=set)
+
+    def add(self, usage: dict[str, Any] | None, model: str) -> None:
+        self.calls += 1
+        self.models.add(model)
+        if not usage:
+            return
+        self.prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
+        self.completion_tokens += int(usage.get("completion_tokens", 0) or 0)
+        self.total_tokens += int(usage.get("total_tokens", 0) or 0)
+
+
+# Активный счётчик токенов задачи. Устанавливается через track_usage().
+_usage: contextvars.ContextVar[TokenUsage | None] = contextvars.ContextVar(
+    "llm_usage", default=None
+)
+
+
+class track_usage:
+    """Контекст-менеджер: собирает токены всех LLM-вызовов внутри блока.
+
+        with llm.track_usage() as usage:
+            await llm.generate_json(...)
+        usage.total_tokens  # суммарно по всем вызовам блока
+    """
+
+    def __enter__(self) -> TokenUsage:
+        self._usage = TokenUsage()
+        self._token = _usage.set(self._usage)
+        return self._usage
+
+    def __exit__(self, *exc: object) -> None:
+        _usage.reset(self._token)
 
 
 class LLMError(Exception):
@@ -90,6 +135,10 @@ async def _chat(
         raise LLMError(f"Неожиданный формат ответа LLM: {data}") from exc
     if not content:
         raise LLMError("Пустой ответ от LLM")
+
+    tracker = _usage.get()
+    if tracker is not None:
+        tracker.add(data.get("usage"), model)
     return content
 
 

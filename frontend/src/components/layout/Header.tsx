@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 const NAV_ITEMS = [
   { to: "/", label: "Главная", end: true },
   { to: "/graphs", label: "Графы", end: false },
+  { to: "/tests", label: "Тесты", end: false },
 ];
 
 export function Header() {

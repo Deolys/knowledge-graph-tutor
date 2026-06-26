@@ -23,7 +23,7 @@ export const useGraphStore = create<GraphState>((set) => ({
   loading: false,
   highlight: null,
   load: async (bookId, sessionId) => {
-    set({ loading: true });
+    set({ loading: true, graph: null, selectedNode: null, highlight: null });
     try {
       const graph = await getGraph(bookId, sessionId);
       set({ graph });

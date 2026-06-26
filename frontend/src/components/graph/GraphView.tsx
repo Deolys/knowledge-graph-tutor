@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import ForceGraph2D, { type ForceGraphMethods } from "react-force-graph-2d";
-import { Filter, Maximize2, MessageCircle, Settings2, X } from "lucide-react";
+import {
+  Filter,
+  FlaskConical,
+  Maximize2,
+  MessageCircle,
+  Settings2,
+  X,
+} from "lucide-react";
 import { useGraph } from "../../hooks/useGraph";
 import { useProgress } from "../../hooks/useProgress";
 import { useOntology } from "../../hooks/useOntology";
@@ -12,6 +20,7 @@ import { NodePanel } from "./NodePanel";
 import { GraphSettingsDialog } from "./GraphSettingsDialog";
 import { GraphFilters } from "./GraphFilters";
 import { QAChat } from "../qa/QAChat";
+import { CreateTestDialog } from "../test/CreateTestDialog";
 
 interface Props {
   bookId: string;
@@ -55,9 +64,11 @@ export function GraphView({ bookId, sessionId }: Props) {
   const { entityTypes, relationTypes } = useOntology();
   const settings = useGraphSettings();
 
+  const navigate = useNavigate();
   const [qaOpen, setQaOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [createTestOpen, setCreateTestOpen] = useState(false);
   const [hoverNode, setHoverNode] = useState<GNode | null>(null);
   const [chapterTitles, setChapterTitles] = useState<Record<string, string>>({});
 
@@ -313,6 +324,15 @@ export function GraphView({ bookId, sessionId }: Props) {
             <span className="hidden sm:inline">Настройки</span>
           </Button>
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCreateTestOpen(true)}
+            className="gap-2"
+          >
+            <FlaskConical className="size-4" />
+            <span className="hidden sm:inline">Тест</span>
+          </Button>
+          <Button
             variant={qaOpen ? "default" : "outline"}
             size="sm"
             onClick={() => setQaOpen((v) => !v)}
@@ -407,6 +427,13 @@ export function GraphView({ bookId, sessionId }: Props) {
       )}
       {qaOpen && <QAChat bookId={bookId} sessionId={sessionId} />}
 
+      <CreateTestDialog
+        open={createTestOpen}
+        onOpenChange={setCreateTestOpen}
+        sessionId={sessionId}
+        presetBookId={bookId}
+        onCreated={(t) => navigate(`/tests/${t.id}`)}
+      />
       <GraphSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <GraphFilters
         open={filtersOpen}

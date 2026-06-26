@@ -73,6 +73,8 @@ export interface BookListItem {
   chapters_done: number;
   entities_count: number;
   status: "processing" | "done" | "error";
+  total_tokens: number;
+  llm_calls: number;
 }
 
 export interface ChapterStatus {
@@ -137,5 +139,59 @@ export interface QAResponse {
   sources: QASource[];
   traversal_nodes: string[];
   traversal_edges: TraversalEdge[];
-  mode: "graphrag" | "vector_fallback";
+  mode: "graphrag" | "vector_fallback" | "no_context";
+}
+
+export type TestStatus = "ready" | "completed";
+
+export interface TestListItem {
+  id: string;
+  book_id: string;
+  book_title: string;
+  title: string;
+  status: TestStatus;
+  question_count: number;
+  score: number | null;
+  created_at: string;
+}
+
+export interface GraphTestQuestion {
+  id: string;
+  order_num: number;
+  text: string;
+  options: string[];
+  difficulty: "easy" | "medium" | "hard";
+  entity_id: string | null;
+  entity_name: string | null;
+  correct_idx?: number;
+  selected_idx?: number | null;
+}
+
+export interface TestDetail {
+  id: string;
+  book_id: string;
+  book_title: string;
+  title: string;
+  status: TestStatus;
+  question_count: number;
+  score: number | null;
+  created_at: string;
+  questions: GraphTestQuestion[];
+}
+
+export interface TestSubmitResult {
+  id: string;
+  score: number;
+  correct: number;
+  total: number;
+  questions: GraphTestQuestion[];
+}
+
+export interface CreateTestPayload {
+  book_id: string;
+  session_id: string;
+  question_count: number;
+  title?: string;
+  entity_ids?: string[];
+  chapter_ids?: string[];
 }
